@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { getCurrentUser } from "@/lib/auth";
-import { isPostFormat, isPostStatus, type Post } from "@/lib/posts";
+import { packFromRow } from "@/lib/pack";
+import { POST_ID_RE, isPostFormat, isPostStatus, type Post } from "@/lib/posts";
 import { createClient } from "@/lib/supabase/server";
 
 export type Agency = {
@@ -83,7 +84,7 @@ export async function listMembers(agencyId: string): Promise<AgencyMember[]> {
 }
 
 const postColumns =
-  "id, title, hook, status, format, platform, starts_on, ends_on";
+  "id, title, hook, status, format, platform, starts_on, ends_on, pack";
 
 function asPost(row: {
   id: string;
@@ -94,6 +95,7 @@ function asPost(row: {
   platform: string;
   starts_on: string;
   ends_on: string | null;
+  pack: unknown;
 }): Post {
   if (!isPostStatus(row.status) || !isPostFormat(row.format)) {
     throw new Error("A calendar post has a status or type this app does not know.");
@@ -107,6 +109,7 @@ function asPost(row: {
     platform: row.platform,
     starts_on: row.starts_on,
     ends_on: row.ends_on,
+    pack: packFromRow(row.pack),
   };
 }
 
@@ -145,6 +148,37 @@ export async function listPostsForMonth(
       (a, b) => a.starts_on.localeCompare(b.starts_on) || a.title.localeCompare(b.title),
     );
 }
+
+export async function listClientPosts(clientId: string): Promise<Post[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("posts")
+    .select(postColumns)
+    .eq("client_id", clientId)
+    .order("starts_on", { ascending: true })
+    .order("title", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(asPost);
+}
+
+export const getClientPost = cache(
+  async (clientId: string, postId: string): Promise<Post | null> => {
+    if (!POST_ID_RE.test(postId)) return null;
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("posts")
+      .select(postColumns)
+      .eq("client_id", clientId)
+      .eq("id", postId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    return asPost(data);
+  },
+);
 
 export const getClientBySlug = cache(
   async (slug: string): Promise<ClientRecord | null> => {

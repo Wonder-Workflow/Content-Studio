@@ -5,9 +5,11 @@ import { redirect } from "next/navigation";
 import { normalizeRange } from "@/lib/calendar";
 import { getCurrentUser } from "@/lib/auth";
 import { getCurrentAgency } from "@/lib/data";
+import { readPackFields, type PackBody } from "@/lib/pack";
 import {
   HOOK_MAX,
   PLATFORM_MAX,
+  POST_ID_RE,
   TITLE_MAX,
   isPostFormat,
   isPostStatus,
@@ -17,9 +19,6 @@ import { createClient } from "@/lib/supabase/server";
 export type PostFormState = {
   error: string | null;
 };
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type ClientRef = { id: string; slug: string };
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -43,7 +42,7 @@ type PostFields =
 
 function dbError(error: { code?: string; message: string }) {
   if (error.code === "23514") {
-    return "Check the title, status, type, and dates, then try again.";
+    return "Check the title, hook, shot list, caption, call to action, status, type, and dates, then try again.";
   }
   if (error.code === "42501") {
     return "You cannot edit posts for this client.";
@@ -52,7 +51,7 @@ function dbError(error: { code?: string; message: string }) {
 }
 
 async function requireClient(clientId: string): Promise<ClientAccess> {
-  if (!UUID_RE.test(clientId)) {
+  if (!POST_ID_RE.test(clientId)) {
     return { ok: false, error: "That client is not on this studio." };
   }
 
@@ -150,6 +149,14 @@ export async function savePost(
   if (!fields.ok) return { error: fields.error };
 
   const postId = String(formData.get("postId") ?? "").trim();
+
+  let pack: PackBody | null = null;
+  if (String(formData.get("includePack") ?? "") === "1") {
+    const parsed = readPackFields(formData);
+    if (!parsed.ok) return { error: parsed.error };
+    pack = parsed.pack;
+  }
+
   const payload = {
     title: fields.title,
     hook: fields.hook,
@@ -158,10 +165,14 @@ export async function savePost(
     platform: fields.platform,
     starts_on: fields.startsOn,
     ends_on: fields.endsOn,
+    ...(pack ? { pack } : {}),
   };
 
+  const returnToPack = String(formData.get("returnTo") ?? "") === "pack";
+  let savedId = postId;
+
   if (postId) {
-    if (!UUID_RE.test(postId)) return { error: "That post is not on this calendar." };
+    if (!POST_ID_RE.test(postId)) return { error: "That post is not on this calendar." };
     const { data, error } = await access.supabase
       .from("posts")
       .update(payload)
@@ -171,16 +182,27 @@ export async function savePost(
       .maybeSingle();
     if (error) return { error: dbError(error) };
     if (!data) return { error: "That post is not on this calendar." };
+    savedId = data.id;
   } else {
-    const { error } = await access.supabase.from("posts").insert({
-      ...payload,
-      client_id: access.client.id,
-    });
+    const { data, error } = await access.supabase
+      .from("posts")
+      .insert({
+        ...payload,
+        client_id: access.client.id,
+      })
+      .select("id")
+      .maybeSingle();
     if (error) return { error: dbError(error) };
+    if (!data) return { error: "That post could not be saved." };
+    savedId = data.id;
   }
 
-  revalidatePath(`/clients/${access.client.slug}`);
-  redirect(`/clients/${access.client.slug}?month=${fields.startsOn.slice(0, 7)}`);
+  const slug = access.client.slug;
+  revalidatePath(`/clients/${slug}`);
+  revalidatePath(`/clients/${slug}/packs`);
+  if (savedId) revalidatePath(`/clients/${slug}/packs/${savedId}`);
+  if (returnToPack && savedId) redirect(`/clients/${slug}/packs/${savedId}`);
+  redirect(`/clients/${slug}?month=${fields.startsOn.slice(0, 7)}`);
 }
 
 export async function deletePost(
@@ -189,7 +211,7 @@ export async function deletePost(
 ): Promise<PostFormState> {
   const access = await requireClient(clientId);
   if (!access.ok) return { error: access.error };
-  if (!UUID_RE.test(postId)) return { error: "That post is not on this calendar." };
+  if (!POST_ID_RE.test(postId)) return { error: "That post is not on this calendar." };
 
   const { data, error } = await access.supabase
     .from("posts")
@@ -203,6 +225,8 @@ export async function deletePost(
   if (!data) return { error: "That post is not on this calendar." };
 
   revalidatePath(`/clients/${access.client.slug}`);
+  revalidatePath(`/clients/${access.client.slug}/packs`);
+  revalidatePath(`/clients/${access.client.slug}/packs/${postId}`);
   return { error: null };
 }
 
@@ -214,7 +238,7 @@ export async function movePost(input: {
 }): Promise<PostFormState & { startsOn?: string }> {
   const access = await requireClient(input.clientId);
   if (!access.ok) return { error: access.error };
-  if (!UUID_RE.test(input.postId)) return { error: "That post is not on this calendar." };
+  if (!POST_ID_RE.test(input.postId)) return { error: "That post is not on this calendar." };
 
   const range = normalizeRange(input.startsOn, input.endsOn);
   if (!range.ok) return { error: range.error };
@@ -231,5 +255,7 @@ export async function movePost(input: {
   if (!data) return { error: "That post is not on this calendar." };
 
   revalidatePath(`/clients/${access.client.slug}`);
+  revalidatePath(`/clients/${access.client.slug}/packs`);
+  revalidatePath(`/clients/${access.client.slug}/packs/${input.postId}`);
   return { error: null, startsOn: range.startsOn };
 }
