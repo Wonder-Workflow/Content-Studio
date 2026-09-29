@@ -163,12 +163,12 @@ export function CalendarBoard({
         </p>
       ) : null}
 
-      <div className="mt-4 overflow-x-auto pb-2">
-        <div className="grid min-w-[48rem] grid-cols-7 gap-1.5 sm:gap-2">
+      <div className="mt-4">
+        <div className="grid grid-cols-7 gap-1 sm:gap-2">
           {WEEKDAYS.map((day) => (
             <div
               key={day}
-              className="px-1 text-[11px] font-medium uppercase tracking-[0.12em] text-muted"
+              className="truncate px-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted sm:px-1 sm:text-[11px] sm:tracking-[0.12em]"
             >
               {day}
             </div>
@@ -188,7 +188,7 @@ export function CalendarBoard({
                   setOverIso(iso);
                 }}
                 onDrop={(event) => onDrop(iso, event)}
-                className={`flex min-h-28 flex-col gap-1 rounded-lg border bg-paper-2 p-1.5 ${
+                className={`flex min-h-20 flex-col gap-1 rounded-lg border bg-paper-2 p-1 sm:min-h-28 sm:p-1.5 ${
                   isToday ? "border-gold ring-2 ring-gold/30" : "border-line"
                 } ${overIso === iso ? "ring-2 ring-gold" : ""}`}
               >
@@ -226,11 +226,16 @@ export function CalendarBoard({
                       }.`}
                       className={`cursor-grab rounded-md px-1.5 py-1 text-left focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink active:cursor-grabbing ${statusClass(post.status)}`}
                     >
-                      <span className="block truncate text-[10px] font-medium uppercase tracking-wide opacity-80">
+                      <span className="hidden truncate text-[10px] font-medium uppercase tracking-wide opacity-80 sm:block">
                         {post.format}
                         {rangeNote}
                       </span>
-                      <span className="block truncate text-xs font-semibold">{post.title}</span>
+                      <span className="block truncate text-[11px] font-semibold sm:text-xs">
+                        {position && position.total > 1 ? (
+                          <span className="sm:hidden">{position.day}/{position.total} </span>
+                        ) : null}
+                        {post.title}
+                      </span>
                     </button>
                   );
                 })}
