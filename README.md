@@ -12,10 +12,10 @@ What you can do now:
 - Add client boards
 - Add a teammate who already has an account
 - Open a client calendar, add a post, and change its date, range, status, and hook
+- Open a post’s pack and edit the hook, shot list and angles, caption, and call to action
 
 What is not in this version:
 
-- The pack editor
 - A brand editor or shot list
 - Image upload
 - Netlify Blobs, or any connection to the old pilot
@@ -61,7 +61,7 @@ The schema lives in `supabase/migrations/`. It creates:
 - `agencies` — the studio
 - `agency_members` — who belongs to it (`user_id`, `agency_id`, no role)
 - `clients` — a board (`name`, `slug`, `brand` JSON)
-- `posts` — calendar slots on a client (`starts_on`, optional `ends_on`, status, title, hook, type, platform)
+- `posts` — calendar slots on a client (`starts_on`, optional `ends_on`, status, title, hook, type, platform, and a `pack` JSON body)
 
 Row Level Security is on. A member can see and edit every client in their own studio, and the posts on those clients. They cannot see another studio. People cannot insert themselves into a studio. The first insert into `agencies` adds the signed-in user as a member. Teammates are added later by email, and only if they already have an account.
 
@@ -69,7 +69,7 @@ Row Level Security is on. A member can see and edit every client in their own st
 
 1. Open the Supabase project.
 2. Go to **SQL Editor → New query**.
-3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`.
+3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`.
 4. Run it.
 
 ### Option B — Supabase CLI
@@ -120,9 +120,30 @@ Open a client from the studio page. The Calendar tab is the month grid at `/clie
 - Drag a card to another day to move the whole range, or change the dates in the editor.
 - Previous, Today, and Next change the month. The month stays in the URL as `?month=2026-09`.
 - Refresh the page. The post is still there.
-- Packs, Brand, and Shot list stay placeholders.
+- Brand and Shot list stay placeholders.
 
 There is no sample calendar data. An empty month is the starting point.
+
+## Packs
+
+A pack is the working copy for one post. It uses the same `posts` row as the calendar. Title, hook, status, type, platform, and dates stay on the row. Shot list and angles, caption, and call to action are stored in `posts.pack`.
+
+Open a pack in either place:
+
+- On the calendar, click a card, then **Open pack**.
+- On the Packs tab, click the post.
+
+The pack editor has one hook, plus title, status, type, platform, dates, shot list and angles, caption, and call to action. Save, then refresh. The text is still there. The calendar card shows the saved title, status, and dates.
+
+Signed-in check:
+
+1. Apply `supabase/migrations/20260930013000_posts_pack.sql` if it is not on the database yet.
+2. Sign in and open a client that already has a post. If the month is empty, add a post on the calendar first.
+3. Open that post’s pack from the calendar card (**Open pack**) or from the Packs tab.
+4. Change the hook, title, status, type, platform, dates, shot list and angles, caption, and call to action. Save.
+5. Refresh the pack page. The values you typed are still there.
+6. Open the calendar on that post’s month. The card shows the saved title and status, and it sits on the saved dates.
+7. Brand and Shot list still show their placeholders.
 
 ## Project layout
 

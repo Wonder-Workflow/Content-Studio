@@ -1,3 +1,5 @@
+import type { PackBody } from "@/lib/pack";
+
 export const POST_STATUSES = ["idea", "in-creation", "ready", "published"] as const;
 
 export type PostStatus = (typeof POST_STATUSES)[number];
@@ -25,6 +27,9 @@ export const TITLE_MAX = 120;
 export const HOOK_MAX = 800;
 export const PLATFORM_MAX = 40;
 
+export const POST_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type Post = {
   id: string;
   title: string;
@@ -34,6 +39,7 @@ export type Post = {
   platform: string;
   starts_on: string;
   ends_on: string | null;
+  pack: PackBody;
 };
 
 export function isPostStatus(value: string): value is PostStatus {

@@ -250,6 +250,7 @@ export function CalendarBoard({
           key={`${editor.post?.id ?? "new"}-${editor.startsOn}`}
           clientId={clientId}
           clientName={clientName}
+          slug={slug}
           post={editor.post}
           startsOn={editor.startsOn}
           onClose={() => setEditor(null)}

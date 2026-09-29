@@ -18,7 +18,10 @@ export function ClientTabs({ slug }: { slug: string }) {
     <nav aria-label="Client sections" className="flex flex-wrap gap-2">
       {tabs.map((tab) => {
         const href = `${base}${tab.suffix}`;
-        const current = pathname === href;
+        const current =
+          tab.suffix === ""
+            ? pathname === href
+            : pathname === href || pathname.startsWith(`${href}/`);
         return (
           <Link
             key={tab.label}
