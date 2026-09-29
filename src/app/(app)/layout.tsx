@@ -21,7 +21,7 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-full flex-col">
       <AppHeader email={user.email} agencyName={agency?.name ?? null} />
-      <div className="mx-auto w-full max-w-5xl flex-1 px-5 py-8">{children}</div>
+      <div className="mx-auto w-full max-w-6xl flex-1 px-5 py-8">{children}</div>
     </div>
   );
 }

@@ -22,9 +22,8 @@ export default async function HomePage() {
       </h1>
       <p className="mt-5 max-w-xl text-base leading-7 text-ink-soft">
         Content Studio is where the team signs in and keeps client work in one
-        place. Each client board will hold a calendar, packs, brand notes, and
-        a shot list. This version is the shell: accounts, the studio, and the
-        client list.
+        place. Each client board has a calendar. Packs, brand notes, and the
+        shot list are still placeholders.
       </p>
       <div className="mt-8 flex flex-wrap gap-3">
         <Link className={buttonClass} href="/login">

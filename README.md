@@ -11,12 +11,12 @@ What you can do now:
 - Create a studio the first time you sign in
 - Add client boards
 - Add a teammate who already has an account
-- Open a client and see the section stubs: Calendar, Packs, Brand, Shot list
+- Open a client calendar, add a post, and change its date, range, status, and hook
 
 What is not in this version:
 
 - The pack editor
-- A real calendar, brand editor, or shot list
+- A brand editor or shot list
 - Image upload
 - Netlify Blobs, or any connection to the old pilot
 
@@ -61,14 +61,15 @@ The schema lives in `supabase/migrations/`. It creates:
 - `agencies` — the studio
 - `agency_members` — who belongs to it (`user_id`, `agency_id`, no role)
 - `clients` — a board (`name`, `slug`, `brand` JSON)
+- `posts` — calendar slots on a client (`starts_on`, optional `ends_on`, status, title, hook, type, platform)
 
-Row Level Security is on. A member can see and edit every client in their own studio, and cannot see another studio. People cannot insert themselves into a studio. The first insert into `agencies` adds the signed-in user as a member. Teammates are added later by email, and only if they already have an account.
+Row Level Security is on. A member can see and edit every client in their own studio, and the posts on those clients. They cannot see another studio. People cannot insert themselves into a studio. The first insert into `agencies` adds the signed-in user as a member. Teammates are added later by email, and only if they already have an account.
 
 ### Option A — SQL editor (no CLI)
 
 1. Open the Supabase project.
 2. Go to **SQL Editor → New query**.
-3. Paste the contents of `supabase/migrations/20260929212215_agency_members_and_clients.sql`.
+3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`.
 4. Run it.
 
 ### Option B — Supabase CLI
@@ -108,6 +109,20 @@ Ian keeps the deploy.
 5. Copy the deployment URL back into Supabase **Authentication → URL configuration** as a redirect URL (`https://YOUR-VERCEL-DOMAIN/auth/confirm`). Add the bare site URL as well if you want it as the Site URL.
 
 No Auth.js setup. No Netlify site. Do not point this app at the old pilot’s database.
+
+## Calendar
+
+Open a client from the studio page. The Calendar tab is the month grid at `/clients/your-client`.
+
+- **Add post** or a day number opens the post. Title, hook, type (Reel, Post, Carousel, Story), platform, and status are saved to Supabase.
+- Status colors are Idea, In-creation, Ready, and Published.
+- Start date is the day the post sits on. End date is optional. A range shows on every day it covers, up to 62 days.
+- Drag a card to another day to move the whole range, or change the dates in the editor.
+- Previous, Today, and Next change the month. The month stays in the URL as `?month=2026-09`.
+- Refresh the page. The post is still there.
+- Packs, Brand, and Shot list stay placeholders.
+
+There is no sample calendar data. An empty month is the starting point.
 
 ## Project layout
 
