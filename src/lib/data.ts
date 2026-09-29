@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { getCurrentUser } from "@/lib/auth";
+import { isPostFormat, isPostStatus, type Post } from "@/lib/posts";
 import { createClient } from "@/lib/supabase/server";
 
 export type Agency = {
@@ -79,6 +80,70 @@ export async function listMembers(agencyId: string): Promise<AgencyMember[]> {
 
   if (error) throw new Error(error.message);
   return (data ?? []) as AgencyMember[];
+}
+
+const postColumns =
+  "id, title, hook, status, format, platform, starts_on, ends_on";
+
+function asPost(row: {
+  id: string;
+  title: string;
+  hook: string;
+  status: string;
+  format: string;
+  platform: string;
+  starts_on: string;
+  ends_on: string | null;
+}): Post {
+  if (!isPostStatus(row.status) || !isPostFormat(row.format)) {
+    throw new Error("A calendar post has a status or type this app does not know.");
+  }
+  return {
+    id: row.id,
+    title: row.title,
+    hook: row.hook,
+    status: row.status,
+    format: row.format,
+    platform: row.platform,
+    starts_on: row.starts_on,
+    ends_on: row.ends_on,
+  };
+}
+
+export async function listPostsForMonth(
+  clientId: string,
+  monthStart: string,
+  monthEnd: string,
+): Promise<Post[]> {
+  const supabase = await createClient();
+  const [startedHere, stillRunning] = await Promise.all([
+    supabase
+      .from("posts")
+      .select(postColumns)
+      .eq("client_id", clientId)
+      .gte("starts_on", monthStart)
+      .lte("starts_on", monthEnd),
+    supabase
+      .from("posts")
+      .select(postColumns)
+      .eq("client_id", clientId)
+      .lt("starts_on", monthStart)
+      .gte("ends_on", monthStart),
+  ]);
+
+  if (startedHere.error) throw new Error(startedHere.error.message);
+  if (stillRunning.error) throw new Error(stillRunning.error.message);
+
+  const rows = [...(startedHere.data ?? []), ...(stillRunning.data ?? [])];
+  return rows
+    .map(asPost)
+    .filter((post) => {
+      const end = post.ends_on ?? post.starts_on;
+      return post.starts_on <= monthEnd && end >= monthStart;
+    })
+    .sort(
+      (a, b) => a.starts_on.localeCompare(b.starts_on) || a.title.localeCompare(b.title),
+    );
 }
 
 export const getClientBySlug = cache(

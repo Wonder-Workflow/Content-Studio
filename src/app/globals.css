@@ -9,6 +9,9 @@
   --line: #e3dacb;
   --gold: #8a6232;
   --danger: #8c3a32;
+  --status-idea: #d8d2c6;
+  --status-creating: #e4c48a;
+  --status-ready: #2f6b4f;
 }
 
 @theme inline {
@@ -20,6 +23,9 @@
   --color-line: var(--line);
   --color-gold: var(--gold);
   --color-danger: var(--danger);
+  --color-status-idea: var(--status-idea);
+  --color-status-creating: var(--status-creating);
+  --color-status-ready: var(--status-ready);
   --font-sans: var(--font-manrope);
   --font-display: var(--font-space-grotesk);
 }
@@ -28,4 +34,20 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-manrope), sans-serif;
+}
+
+dialog.calendar-dialog {
+  margin: auto;
+  max-height: min(90vh, 44rem);
+  width: min(32rem, calc(100% - 1.5rem));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0;
+}
+
+dialog.calendar-dialog::backdrop {
+  background: rgb(26 23 20 / 0.45);
 }
