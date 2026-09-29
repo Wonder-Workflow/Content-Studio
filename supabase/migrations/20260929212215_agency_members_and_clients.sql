@@ -155,7 +155,7 @@ begin
   end if;
 
   return query
-  select members.user_id, coalesce(users.email, ''), members.created_at
+  select members.user_id, coalesce(users.email::text, ''), members.created_at
   from public.agency_members as members
   join auth.users as users on users.id = members.user_id
   where members.agency_id = target_agency_id
