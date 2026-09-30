@@ -7,6 +7,11 @@ import {
   brandJobsQueryError,
   type BrandJobSnapshot,
 } from "@/lib/brand-job";
+import {
+  POST_MEDIA_BUCKET,
+  isPostMediaKind,
+  type PostMediaKind,
+} from "@/lib/media";
 import { packFromRow } from "@/lib/pack";
 import { POST_ID_RE, isPostFormat, isPostStatus, type Post, type PostStatus } from "@/lib/posts";
 import { postOverlapsRange } from "@/lib/shot-list";
@@ -26,6 +31,16 @@ export type ClientSummary = {
 
 export type ClientRecord = ClientSummary & {
   brand: BrandProfile;
+};
+
+export type PostMediaRecord = {
+  id: string;
+  post_id: string;
+  kind: PostMediaKind;
+  position: number;
+  storage_path: string;
+  mime_type: string;
+  byte_size: number;
 };
 
 export type AgencyMember = {
@@ -204,6 +219,84 @@ export async function listClientPosts(clientId: string): Promise<Post[]> {
 
   if (error) throw new Error(error.message);
   return (data ?? []).map(asPost);
+}
+
+const mediaColumns = "id, post_id, kind, position, storage_path, mime_type, byte_size";
+
+function asMedia(row: {
+  id: string;
+  post_id: string;
+  kind: string;
+  position: number;
+  storage_path: string;
+  mime_type: string;
+  byte_size: number;
+}): PostMediaRecord {
+  if (!isPostMediaKind(row.kind)) {
+    throw new Error("A post image has a kind this app does not know.");
+  }
+  return {
+    id: row.id,
+    post_id: row.post_id,
+    kind: row.kind,
+    position: row.position,
+    storage_path: row.storage_path,
+    mime_type: row.mime_type,
+    byte_size: row.byte_size,
+  };
+}
+
+export async function listPostMedia(postId: string): Promise<PostMediaRecord[]> {
+  if (!POST_ID_RE.test(postId)) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("post_media")
+    .select(mediaColumns)
+    .eq("post_id", postId)
+    .order("position", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(asMedia);
+}
+
+export async function listMediaForPosts(postIds: string[]): Promise<PostMediaRecord[]> {
+  const ids = postIds.filter((id) => POST_ID_RE.test(id));
+  if (ids.length === 0) return [];
+
+  const supabase = await createClient();
+  const rows: PostMediaRecord[] = [];
+  for (let index = 0; index < ids.length; index += 100) {
+    const batch = ids.slice(index, index + 100);
+    const { data, error } = await supabase
+      .from("post_media")
+      .select(mediaColumns)
+      .in("post_id", batch)
+      .order("position", { ascending: true });
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []).map(asMedia));
+  }
+  return rows;
+}
+
+export async function signedMediaUrls(
+  paths: string[],
+  expiresIn: number,
+): Promise<Map<string, string>> {
+  const unique = [...new Set(paths.filter((path) => path.length > 0))];
+  const urls = new Map<string, string>();
+  if (unique.length === 0) return urls;
+
+  const supabase = await createClient();
+  for (let index = 0; index < unique.length; index += 100) {
+    const batch = unique.slice(index, index + 100);
+    const { data, error } = await supabase.storage
+      .from(POST_MEDIA_BUCKET)
+      .createSignedUrls(batch, expiresIn);
+    if (error) throw new Error(error.message);
+    for (const item of data ?? []) {
+      if (item.path && item.signedUrl && !item.error) urls.set(item.path, item.signedUrl);
+    }
+  }
+  return urls;
 }
 
 export const getClientPost = cache(

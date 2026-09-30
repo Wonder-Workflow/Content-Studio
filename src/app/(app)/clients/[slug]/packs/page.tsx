@@ -31,9 +31,22 @@ export default async function PacksPage({
       <p className="font-display text-xs uppercase tracking-[0.16em] text-gold">Packs</p>
       <h2 className="mt-2 font-display text-3xl tracking-tight">{client.name}</h2>
       <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
-        Each post has one pack: the hook, the shot list and angles, the caption, and the
-        call to action. Add a post on the calendar, then open it here.
+        Each post has one pack: the hook, the shot list and angles, the caption, the call to
+        action, and any images. Add a post on the calendar, then open it here.
       </p>
+      {posts.length > 0 ? (
+        <div className="mt-6 flex flex-col gap-2">
+          <a className={quietButtonClass} href={`/clients/${client.slug}/export/ghl`}>
+            Download GHL CSV
+          </a>
+          {posts.length > 90 ? (
+            <p className="max-w-xl text-sm leading-6 text-muted">
+              GoHighLevel accepts 90 posts in one CSV. This file has {posts.length}. Split it
+              before you upload.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {posts.length === 0 ? (
         <div className="mt-8 rounded-lg border border-dashed border-line px-5 py-10">
