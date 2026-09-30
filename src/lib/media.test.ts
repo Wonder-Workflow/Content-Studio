@@ -15,8 +15,8 @@ const clientId = "22222222-2222-4222-8222-222222222222";
 const postId = "33333333-3333-4333-8333-333333333333";
 const mediaId = "44444444-4444-4444-8444-444444444444";
 
-test("only manual upload is a media source", () => {
-  assert.deepEqual(MEDIA_SOURCES, ["upload"]);
+test("media sources are manual upload and DOT", () => {
+  assert.deepEqual(MEDIA_SOURCES, ["upload", "dot"]);
   assert.equal(POST_MEDIA_BUCKET, "post-media");
   assert.equal(MAX_IMAGE_BYTES, 10 * 1024 * 1024);
   assert.equal(MAX_CAROUSEL_IMAGES, 10);

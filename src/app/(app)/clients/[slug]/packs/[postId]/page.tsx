@@ -1,6 +1,13 @@
 import { notFound } from "next/navigation";
 import { PackEditor } from "@/components/pack-editor";
-import { getClientBySlug, getClientPost, listPostMedia, signedMediaUrls } from "@/lib/data";
+import { type ArtJobSnapshot } from "@/lib/art-job";
+import {
+  getArtJobSnapshot,
+  getClientBySlug,
+  getClientPost,
+  listPostMedia,
+  signedMediaUrls,
+} from "@/lib/data";
 import { PREVIEW_URL_SECONDS } from "@/lib/media";
 
 export async function generateMetadata({
@@ -28,6 +35,13 @@ export default async function PackPage({
   if (!post) notFound();
 
   const records = await listPostMedia(post.id);
+  let artSnapshot: ArtJobSnapshot = { latest: null, open: null };
+  let artLoadError: string | null = null;
+  try {
+    artSnapshot = await getArtJobSnapshot(post.id);
+  } catch (error) {
+    artLoadError = error instanceof Error ? error.message : "Image generation is unavailable.";
+  }
   let previews = new Map<string, string>();
   try {
     previews = await signedMediaUrls(
@@ -51,6 +65,8 @@ export default async function PackPage({
         position: item.position,
         previewUrl: previews.get(item.storage_path) ?? null,
       }))}
+      artSnapshot={artSnapshot}
+      artLoadError={artLoadError}
     />
   );
 }
