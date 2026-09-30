@@ -51,3 +51,19 @@ dialog.calendar-dialog {
 dialog.calendar-dialog::backdrop {
   background: rgb(26 23 20 / 0.45);
 }
+
+@media print {
+  body {
+    background: white;
+  }
+
+  .shot-sheet .status-chip {
+    border: 1px solid var(--ink);
+    background: transparent;
+    color: var(--ink);
+  }
+}
+
+@page {
+  margin: 0.6in;
+}

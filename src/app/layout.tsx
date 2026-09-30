@@ -27,7 +27,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${manrope.variable} ${spaceGrotesk.variable} h-full`}
     >
       <body className="min-h-full bg-paper font-sans text-ink antialiased">
-        <div className="h-1 bg-gold" />
+        <div className="h-1 bg-gold print:hidden" />
         {children}
       </body>
     </html>

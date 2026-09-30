@@ -19,15 +19,18 @@ export default async function ClientLayout({
 
   return (
     <div>
-      <Link href="/studio" className="text-sm text-muted transition hover:text-ink">
+      <Link
+        href="/studio"
+        className="text-sm text-muted transition hover:text-ink print:hidden"
+      >
         All clients
       </Link>
-      <h1 className="mt-3 font-display text-4xl tracking-tight">{client.name}</h1>
-      <p className="mt-2 text-sm text-muted">{agency.name}</p>
-      <div className="mt-6">
+      <h1 className="mt-3 font-display text-4xl tracking-tight print:mt-0">{client.name}</h1>
+      <p className="mt-2 text-sm text-muted print:hidden">{agency.name}</p>
+      <div className="mt-6 print:hidden">
         <ClientTabs slug={client.slug} />
       </div>
-      <div className="mt-8">{children}</div>
+      <div className="mt-8 print:mt-4">{children}</div>
     </div>
   );
 }

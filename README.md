@@ -14,10 +14,10 @@ What you can do now:
 - Open a client calendar, add a post, and change its date, range, status, and hook
 - Open a post’s pack and edit the hook, shot list and angles, caption, and call to action
 - Open a client’s Brand tab and edit the one brand profile for that client
+- Open Shot list, filter the shoot dates, and print the posts that are in creation
 
 What is not in this version:
 
-- A shot list
 - Image upload, including a logo on the brand
 - Netlify Blobs, or any connection to the old pilot
 
@@ -40,7 +40,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-`npm run build` checks the production build. `npm run lint` runs ESLint.
+`npm run build` checks the production build. `npm run lint` runs ESLint. `npm test` runs the lib tests.
 
 ## Environment variables
 
@@ -121,7 +121,7 @@ Open a client from the studio page. The Calendar tab is the month grid at `/clie
 - Drag a card to another day to move the whole range, or change the dates in the editor.
 - Previous, Today, and Next change the month. The month stays in the URL as `?month=2026-09`.
 - Refresh the page. The post is still there.
-- Shot list stays a placeholder. Brand is edited on the Brand tab.
+- Brand is edited on the Brand tab. Shot list reads these same posts.
 
 There is no sample calendar data. An empty month is the starting point.
 
@@ -144,7 +144,7 @@ Signed-in check:
 4. Change the hook, title, status, type, platform, dates, shot list and angles, caption, and call to action. Save.
 5. Refresh the pack page. The values you typed are still there.
 6. Open the calendar on that post’s month. The card shows the saved title and status, and it sits on the saved dates.
-7. Shot list still shows its placeholder. Brand is a separate tab.
+7. Open Shot list for that client. The post shows up when its dates overlap the range and its status is In-creation. Brand is a separate tab.
 
 ## Brand
 
@@ -170,6 +170,32 @@ Signed-in check:
 4. Fill brand name, tagline, positioning, audience, offers, tone, caption pattern, do, don't, visual notes, and phrases. Save.
 5. Refresh. The same text is still there.
 6. Open the same client as another studio member. The same brand is there, and that member can change it and save.
+
+## Shot list
+
+Shot list is the call sheet for one client. It reads the same `posts` rows as the calendar. It does not add a table. Any studio member who can open the client can open the sheet.
+
+The default window is the current month. From and To accept any range up to 366 days, including a range that crosses months. A post is included when its dates overlap that window.
+
+- **In-creation** is included. That is the default, matching the posts that are ready to shoot.
+- **Include Ready** adds Ready posts. Idea and Published stay off the sheet.
+- Each row shows the date or date range, title, type, platform, hook, and shot list and angles (`posts.pack.shot_list_and_angles`). Caption and call to action stay on the pack.
+- **Filmed** checks stay in this browser. They are not saved on the post and they are not shared with the studio.
+- **Print** hides the studio header, tabs, and filters so the page can be printed or saved as a PDF.
+
+There is no new migration for this tab. If the calendar and pack migrations are already applied, the sheet can read posts.
+
+Signed-in check:
+
+1. Sign in and open a client.
+2. On the calendar, have four posts if you can: an In-creation post in the current month with a hook and a multi-line shot list, a Ready post in that month, an Idea or Published post in that month, and an In-creation post whose dates cross into the month from outside it.
+3. Open Shot list with no dates in the URL. The range is the current month. The In-creation posts that overlap it are listed with dates, title, type, platform, hook, and shot list. Ready, Idea, and Published are not listed.
+4. Check **Include Ready** and choose **Show shots**. The Ready post appears. Idea and Published still do not.
+5. Set From and To to a window with no overlapping posts. The page says nothing to shoot.
+6. Set an end date before the start date, or open `?from=nope&to=2026-09-02`. The page explains the range and does not crash. Show shots still works after you pick valid dates.
+7. Mark a row **Filmed** and refresh. The check is still there in this browser. Open a private window: that check is not there.
+8. Choose **Print**. Preview shows the client name, the date range, and the rows, including filmed checks. The studio header, client tabs, and date filters are not on the page.
+9. Open Calendar, a pack, and Brand. Editing and saving still work.
 
 ## Project layout
 
