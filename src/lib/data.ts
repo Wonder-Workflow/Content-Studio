@@ -1,6 +1,12 @@
 import { cache } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { brandFromRow, type BrandProfile } from "@/lib/brand";
+import {
+  BRAND_JOB_COLUMNS,
+  brandJobFromRow,
+  brandJobsQueryError,
+  type BrandJobSnapshot,
+} from "@/lib/brand-job";
 import { packFromRow } from "@/lib/pack";
 import { POST_ID_RE, isPostFormat, isPostStatus, type Post, type PostStatus } from "@/lib/posts";
 import { postOverlapsRange } from "@/lib/shot-list";
@@ -217,6 +223,43 @@ export const getClientPost = cache(
     return asPost(data);
   },
 );
+
+export async function getBrandJobSnapshot(clientId: string): Promise<BrandJobSnapshot> {
+  const supabase = await createClient();
+  const [latestResult, openResult, doneResult] = await Promise.all([
+    supabase
+      .from("brand_jobs")
+      .select(BRAND_JOB_COLUMNS)
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("brand_jobs")
+      .select(BRAND_JOB_COLUMNS)
+      .eq("client_id", clientId)
+      .in("status", ["queued", "processing"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("brand_jobs")
+      .select("id")
+      .eq("client_id", clientId)
+      .eq("status", "done")
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const error = latestResult.error ?? openResult.error ?? doneResult.error;
+  if (error) throw new Error(brandJobsQueryError(error));
+
+  return {
+    latest: brandJobFromRow(latestResult.data),
+    open: brandJobFromRow(openResult.data),
+    hasCompleted: Boolean(doneResult.data),
+  };
+}
 
 export const getClientBySlug = cache(
   async (slug: string): Promise<ClientRecord | null> => {
