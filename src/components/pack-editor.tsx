@@ -25,7 +25,9 @@ import {
   type PostStatus,
 } from "@/lib/posts";
 import { ArtJobPanel } from "@/components/art-job-panel";
+import { BatchRevise } from "@/components/batch-revise";
 import { PackMedia, type PackMediaItem } from "@/components/pack-media";
+import { PendingArt } from "@/components/pending-art";
 import { statusClass } from "@/components/status-chip";
 import { buttonClass, dangerButtonClass, inputClass, quietButtonClass } from "@/components/styles";
 
@@ -46,6 +48,7 @@ export function PackEditor({
   media,
   artSnapshot,
   artLoadError,
+  pendingArt,
 }: {
   clientId: string;
   clientName: string;
@@ -54,6 +57,7 @@ export function PackEditor({
   media: PackMediaItem[];
   artSnapshot: ArtJobSnapshot;
   artLoadError: string | null;
+  pendingArt: { jobId: string; previews: { id: string; url: string | null }[] } | null;
 }) {
   const router = useRouter();
   const platformListId = useId();
@@ -102,6 +106,11 @@ export function PackEditor({
           <Link className={quietButtonClass} href={`/clients/${slug}/brand`}>
             Brand
           </Link>
+          {post.batchId ? (
+            <Link className={quietButtonClass} href={`/clients/${slug}/batch/${post.batchId}`}>
+              Batch
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -113,6 +122,21 @@ export function PackEditor({
         snapshot={artSnapshot}
         loadError={artLoadError}
       />
+
+      {pendingArt ? (
+        <PendingArt
+          clientId={clientId}
+          postId={post.id}
+          jobId={pendingArt.jobId}
+          previews={pendingArt.previews}
+        />
+      ) : null}
+
+      {post.batchId ? (
+        <div className="mt-8">
+          <BatchRevise clientId={clientId} batchId={post.batchId} postId={post.id} />
+        </div>
+      ) : null}
 
       <form action={action} className="mt-8 flex max-w-2xl flex-col gap-4">
         <input type="hidden" name="clientId" value={clientId} />

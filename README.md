@@ -14,6 +14,7 @@ What you can do now:
 - Open a client calendar, add a post, and change its date, range, status, and hook
 - Open a post’s pack and edit the hook, shot list and angles, caption, call to action, and images
 - Ask DOT to fill empty image slots on a pack (carousel, post or story image, or reel cover)
+- Generate a batch of draft packs for a client (a week, two weeks, a month, or a custom range), then revise one pack or the whole batch
 - Download a GoHighLevel Social Planner Advance CSV for a client’s packs
 - Open a client’s Brand tab, pull a brand from website and social links, and edit the one brand profile for that client
 - Open Shot list, filter the shoot dates, and print the posts that are in creation
@@ -77,6 +78,10 @@ The schema lives in `supabase/migrations/`. It creates:
 - `posts` — calendar slots on a client (`starts_on`, optional `ends_on`, status, title, hook, type, platform, and a `pack` JSON body)
 - `post_media` — images on a post (carousel, static, or cover) stored in the private `post-media` bucket
 - `art_jobs` — one DOT image request per post (`queued`, `processing`, `done`, or `failed`)
+- `batch_jobs` — one Generate batch for a client, with `posts.batch_id` and `art_jobs.batch_id` pointing at it
+- `batch_references` — optional style images in the private `batch-references` bucket
+- `batch_revisions` — a change request for one pack or the whole batch
+- `art_pending_media` — DOT images held until someone accepts them onto the pack
 
 Row Level Security is on. A member can see and edit every client in their own studio, and the posts on those clients. They cannot see another studio. People cannot insert themselves into a studio. The first insert into `agencies` adds the signed-in user as a member. Teammates are added later by email, and only if they already have an account.
 
@@ -84,7 +89,7 @@ Row Level Security is on. A member can see and edit every client in their own st
 
 1. Open the Supabase project.
 2. Go to **SQL Editor → New query**.
-3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration. Brand pulls add `20260930150000_brand_jobs.sql` after the brand shape file. That file also allows optional hex `colors` on `clients.brand`. Post images add `20260930183000_post_media.sql` after the pack file. It creates `post_media` and the private `post-media` storage bucket. DOT art jobs add `20260930203000_art_jobs.sql` after the post image file. That file creates `art_jobs` and allows `source` `dot` on `post_media`. Pack text fields on `posts` are unchanged.
+3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration. Brand pulls add `20260930150000_brand_jobs.sql` after the brand shape file. That file also allows optional hex `colors` on `clients.brand`. Post images add `20260930183000_post_media.sql` after the pack file. It creates `post_media` and the private `post-media` storage bucket. DOT art jobs add `20260930203000_art_jobs.sql` after the post image file. That file creates `art_jobs` and allows `source` `dot` on `post_media`. Pack text fields on `posts` are unchanged. Generate batch adds `20260930320000_batch_jobs.sql` after the art job file. That file creates `batch_jobs`, `batch_references`, `batch_revisions`, and `art_pending_media`, and adds `batch_id` on `posts` and `art_jobs`.
 4. Run it.
 
 ### Option B — Supabase CLI
@@ -313,6 +318,30 @@ Signed-in check:
 7. Fill every slot for that type, then choose **Generate with DOT**. The page asks you to replace or skip. Skip leaves the images. Replace queues a job with `replace_media` true.
 8. Unset `DOT_SLACK_BOT_TOKEN` and generate again after the open job is done or failed. The new job is still queued, and the page says Slack is not connected.
 
+## Generate batch
+
+On a client calendar, **Generate batch** opens `/clients/{slug}/batch`. It drafts packs for that client from the saved brand. This app still does not call OpenAI or any image model. Each draft queues an `art_jobs` row, the same contract as **Generate with DOT**.
+
+1. **Window.** 1 week, 2 weeks, or 1 month starts today. Custom dates can cover up to 62 days.
+2. **Mix.** Counts per week for carousels, static posts, and reel covers. The defaults are 1 carousel and 3 static posts. A full week uses those counts. A short leftover week is scaled down. Posts are spread across the days in that week.
+3. **Look.** A style note, plus optional https links (one per line, up to 8) and up to 4 reference images (PNG, JPEG, or WebP, 10MB each).
+4. **Output.** Idea posts on the calendar, with a title, one hook, a shot list, a caption, a call to action, type, and Instagram as the platform. An image job is queued for each pack. If Slack is connected, DOT is asked in #content. If it is not, the jobs stay queued for the plugin.
+
+Open the batch page after it runs. It lists the drafts, the image-job status, and the style note. **Open calendar** jumps to the month the window starts in.
+
+**Revise this batch** on that page sends one note to every pack in the batch. **Revise this pack** on a batch pack sends the note to that pack only. A note about the hook, caption, title, or call to action updates that copy and does not queue images. A note about a slide, tone, color, or other look queues a new art job. If the pack already has images, the new ones wait on the pack. **Use these images** replaces that slot. **Keep current images** discards the new ones. The previous images stay until then.
+
+There is no new environment variable. Reference images use the private `batch-references` bucket from the migration. DOT image callbacks still use `DOT_ART_CALLBACK_SECRET` and `SUPABASE_SERVICE_ROLE_KEY`. The server-action body limit is raised so those reference images can upload with the form, the same way a pack image does.
+
+Signed-in check:
+
+1. Apply `supabase/migrations/20260930320000_batch_jobs.sql` if it is not on the database yet.
+2. Save a brand on the client (name, offers, tone, and visual notes are enough).
+3. On the calendar, choose **Generate batch**. Leave the mix at 1 carousel and 3 static posts, add a style note, and choose **Generate batch**.
+4. The batch page lists 4 drafts for a one-week window. The calendar for that month shows them as Idea. In Supabase, `select id, post_id, batch_id, status, hold_media from public.art_jobs order by created_at desc limit 10;` shows one queued row per draft.
+5. On the batch page, revise the whole batch with “warmer tones”. Each pack’s shot list includes that note, and a new art job is queued. Revise one pack with “change the hook to Come in from the heat”. That hook changes. A second image job is not queued for a hook-only note.
+6. When a pack already has images, a look revision sets `hold_media`. After DOT completes, the pack shows **Use these images** and **Keep current images**. The previous images stay until you choose.
+
 ## Shot list
 
 Shot list is the call sheet for one client. It reads the same `posts` rows as the calendar. It does not add a table. Any studio member who can open the client can open the sheet.
@@ -344,6 +373,7 @@ Signed-in check:
 ```
 src/app/                  pages (login, studio, client boards)
 src/app/api/dot/          DOT art job callbacks (bearer secret, no studio session)
+src/app/(app)/clients/[slug]/batch/   Generate batch and one batch’s drafts
 src/app/auth/confirm/     email link / magic link return
 src/proxy.ts              refreshes the Supabase session cookie
 src/lib/supabase/         browser client, server client, env check

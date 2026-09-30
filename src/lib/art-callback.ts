@@ -19,14 +19,19 @@ import {
   type ArtSlotPlan,
 } from "@/lib/art-job";
 import { collectArtFiles, parseCompleteImages } from "@/lib/art-image";
+import {
+  BATCH_REFERENCE_BUCKET,
+  batchBriefNotes,
+  referenceUrlsFromRow,
+} from "@/lib/batch";
 import { brandFromRow } from "@/lib/brand";
-import { POST_MEDIA_BUCKET, mediaObjectPath, type ImageMime } from "@/lib/media";
+import { POST_MEDIA_BUCKET, SIGNED_URL_SECONDS, mediaObjectPath, type ImageMime } from "@/lib/media";
 import { packFromRow } from "@/lib/pack";
 import { POST_ID_RE, isPostFormat } from "@/lib/posts";
 import { createServiceClient } from "@/lib/supabase/service";
 
 const JOB_COLUMNS =
-  "id, client_id, post_id, agency_id, status, error, brief, replace_media, created_at, updated_at, completed_at";
+  "id, client_id, post_id, agency_id, batch_id, status, error, brief, replace_media, hold_media, created_at, updated_at, completed_at";
 
 function json(body: unknown, status = 200) {
   return Response.json(body, {
@@ -95,6 +100,8 @@ function jobJson(job: ArtJob) {
     status: job.status,
     notes: job.notes,
     replace: job.replace,
+    batch_id: job.batchId,
+    hold_media: job.hold,
     error: job.error,
     created_at: job.createdAt,
     updated_at: job.updatedAt,
@@ -215,9 +222,9 @@ export async function completeDotArtJob(request: Request, id: string) {
   }
 
   const plan = planArtWrites({
-    occupied: context.positions,
+    occupied: job.hold ? [] : context.positions,
     incomingCount: images.images.length,
-    replace: job.replace,
+    replace: job.hold || job.replace,
     max: context.target.count,
   });
   if (!plan.ok) {
@@ -393,13 +400,15 @@ async function loadArtView(
     return { ok: false, response: json({ error: "The images on this pack could not be read." }, 500) };
   }
 
+  const positions = (media ?? []).map((row) => row.position);
   const slots = describeArtSlots({
     format: post.format,
-    positions: (media ?? []).map((row) => row.position),
-    replace: job.replace,
+    positions: job.hold ? [] : positions,
+    replace: job.hold ? false : job.replace,
   });
   const brand = brandFromRow(client.brand);
   const pack = packFromRow(post.pack);
+  const notes = await notesForDot(supabase, job);
   const brief = buildArtBrief({
     clientName: client.name,
     clientSlug: client.slug,
@@ -412,8 +421,9 @@ async function loadArtView(
       platform: post.platform,
       pack,
     },
-    notes: job.notes,
+    notes,
     slots,
+    hold: job.hold,
   });
 
   return {
@@ -433,4 +443,37 @@ async function loadArtView(
       slots: slotsJson(slots),
     },
   };
+}
+
+async function notesForDot(supabase: ServiceClient, job: ArtJob): Promise<string | null> {
+  if (!job.batchId) return job.notes;
+  const { data, error } = await supabase
+    .from("batch_jobs")
+    .select("style_note, reference_urls")
+    .eq("id", job.batchId)
+    .maybeSingle();
+  if (error || !data) return job.notes;
+
+  const { data: images } = await supabase
+    .from("batch_references")
+    .select("storage_path")
+    .eq("batch_id", job.batchId);
+  const paths = (images ?? [])
+    .map((row) => row.storage_path)
+    .filter((path): path is string => typeof path === "string" && path.length > 0);
+  let signed: string[] = [];
+  if (paths.length > 0) {
+    const result = await supabase.storage
+      .from(BATCH_REFERENCE_BUCKET)
+      .createSignedUrls(paths, SIGNED_URL_SECONDS);
+    signed = (result.data ?? []).flatMap((item) => (item.signedUrl ? [item.signedUrl] : []));
+  }
+
+  const text = batchBriefNotes({
+    styleNote: typeof data.style_note === "string" ? data.style_note : "",
+    referenceUrls: referenceUrlsFromRow(data.reference_urls),
+    referenceImageUrls: signed,
+    revisionNote: job.notes,
+  });
+  return text || job.notes;
 }

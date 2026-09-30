@@ -5,6 +5,7 @@ import {
   ART_JOB_COLUMNS,
   artJobFromRow,
   artJobsQueryError,
+  type ArtJob,
   type ArtJobSnapshot,
 } from "@/lib/art-job";
 import {
@@ -14,7 +15,15 @@ import {
   type BrandJobSnapshot,
 } from "@/lib/brand-job";
 import {
+  BATCH_REFERENCE_BUCKET,
+  batchQueryError,
+  mixFromRow,
+  referenceUrlsFromRow,
+  type BatchMix,
+} from "@/lib/batch";
+import {
   POST_MEDIA_BUCKET,
+  SIGNED_URL_SECONDS,
   isPostMediaKind,
   type PostMediaKind,
 } from "@/lib/media";
@@ -105,7 +114,7 @@ export async function listMembers(agencyId: string): Promise<AgencyMember[]> {
 }
 
 const postColumns =
-  "id, title, hook, status, format, platform, starts_on, ends_on, pack";
+  "id, title, hook, status, format, platform, starts_on, ends_on, pack, batch_id";
 
 function asPost(row: {
   id: string;
@@ -117,6 +126,7 @@ function asPost(row: {
   starts_on: string;
   ends_on: string | null;
   pack: unknown;
+  batch_id: string | null;
 }): Post {
   if (!isPostStatus(row.status) || !isPostFormat(row.format)) {
     throw new Error("A calendar post has a status or type this app does not know.");
@@ -131,6 +141,7 @@ function asPost(row: {
     starts_on: row.starts_on,
     ends_on: row.ends_on,
     pack: packFromRow(row.pack),
+    batchId: row.batch_id,
   };
 }
 
@@ -415,3 +426,167 @@ export const getClientBySlug = cache(
     };
   },
 );
+
+export type BatchRecord = {
+  id: string;
+  clientId: string;
+  startsOn: string;
+  endsOn: string;
+  mix: BatchMix;
+  styleNote: string;
+  referenceUrls: string[];
+  createdAt: string;
+};
+
+export type BatchReference = {
+  id: string;
+  storagePath: string;
+  mimeType: string;
+};
+
+export type BatchRevision = {
+  id: string;
+  postId: string | null;
+  note: string;
+  createdAt: string;
+};
+
+export type PendingArt = {
+  jobId: string;
+  items: {
+    id: string;
+    kind: PostMediaKind;
+    position: number;
+    storagePath: string;
+  }[];
+};
+
+export async function getBatch(clientId: string, batchId: string): Promise<BatchRecord | null> {
+  if (!POST_ID_RE.test(batchId)) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("batch_jobs")
+    .select("id, client_id, starts_on, ends_on, mix, style_note, reference_urls, created_at")
+    .eq("client_id", clientId)
+    .eq("id", batchId)
+    .maybeSingle();
+  if (error) throw new Error(batchQueryError(error));
+  if (!data) return null;
+  const mix = mixFromRow(data.mix);
+  if (!mix) return null;
+  return {
+    id: data.id,
+    clientId: data.client_id,
+    startsOn: data.starts_on,
+    endsOn: data.ends_on,
+    mix,
+    styleNote: data.style_note ?? "",
+    referenceUrls: referenceUrlsFromRow(data.reference_urls),
+    createdAt: data.created_at,
+  };
+}
+
+export async function listBatchPosts(clientId: string, batchId: string): Promise<Post[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("posts")
+    .select(postColumns)
+    .eq("client_id", clientId)
+    .eq("batch_id", batchId)
+    .order("starts_on", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(asPost);
+}
+
+export async function listBatchReferences(batchId: string): Promise<BatchReference[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("batch_references")
+    .select("id, storage_path, mime_type")
+    .eq("batch_id", batchId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(batchQueryError(error));
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    storagePath: row.storage_path,
+    mimeType: row.mime_type,
+  }));
+}
+
+export async function signedReferenceUrls(paths: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(paths.filter((path) => path.length > 0))];
+  const urls = new Map<string, string>();
+  if (unique.length === 0) return urls;
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from(BATCH_REFERENCE_BUCKET)
+    .createSignedUrls(unique, SIGNED_URL_SECONDS);
+  if (error) throw new Error(error.message);
+  for (const item of data ?? []) {
+    if (item.path && item.signedUrl && !item.error) urls.set(item.path, item.signedUrl);
+  }
+  return urls;
+}
+
+export async function listArtJobsForPosts(postIds: string[]): Promise<ArtJob[]> {
+  const ids = postIds.filter((id) => POST_ID_RE.test(id));
+  if (ids.length === 0) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("art_jobs")
+    .select(ART_JOB_COLUMNS)
+    .in("post_id", ids)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(artJobsQueryError(error));
+  return (data ?? []).flatMap((row) => {
+    const job = artJobFromRow(row);
+    return job ? [job] : [];
+  });
+}
+
+export async function listBatchRevisions(batchId: string): Promise<BatchRevision[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("batch_revisions")
+    .select("id, post_id, note, created_at")
+    .eq("batch_id", batchId)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(batchQueryError(error));
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    postId: row.post_id,
+    note: row.note,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function getPendingArt(postId: string): Promise<PendingArt | null> {
+  if (!POST_ID_RE.test(postId)) return null;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("art_pending_media")
+    .select("id, art_job_id, kind, position, storage_path, created_at")
+    .eq("post_id", postId)
+    .order("position", { ascending: true });
+  if (error) throw new Error(artJobsQueryError(error));
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+  const newest = rows.reduce((latest, row) =>
+    row.created_at > latest.created_at ? row : latest,
+  );
+  const items = rows.filter((row) => row.art_job_id === newest.art_job_id);
+  return {
+    jobId: newest.art_job_id,
+    items: items.flatMap((row) => {
+      if (!isPostMediaKind(row.kind)) return [];
+      return [
+        {
+          id: row.id,
+          kind: row.kind,
+          position: row.position,
+          storagePath: row.storage_path,
+        },
+      ];
+    }),
+  };
+}

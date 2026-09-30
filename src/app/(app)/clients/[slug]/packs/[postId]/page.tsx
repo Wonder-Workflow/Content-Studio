@@ -5,8 +5,10 @@ import {
   getArtJobSnapshot,
   getClientBySlug,
   getClientPost,
+  getPendingArt,
   listPostMedia,
   signedMediaUrls,
+  type PendingArt,
 } from "@/lib/data";
 import { PREVIEW_URL_SECONDS } from "@/lib/media";
 
@@ -42,10 +44,19 @@ export default async function PackPage({
   } catch (error) {
     artLoadError = error instanceof Error ? error.message : "Image generation is unavailable.";
   }
+  let pending: PendingArt | null = null;
+  try {
+    pending = await getPendingArt(post.id);
+  } catch {
+    pending = null;
+  }
   let previews = new Map<string, string>();
   try {
     previews = await signedMediaUrls(
-      records.map((item) => item.storage_path),
+      [
+        ...records.map((item) => item.storage_path),
+        ...(pending?.items.map((item) => item.storagePath) ?? []),
+      ],
       PREVIEW_URL_SECONDS,
     );
   } catch {
@@ -67,6 +78,17 @@ export default async function PackPage({
       }))}
       artSnapshot={artSnapshot}
       artLoadError={artLoadError}
+      pendingArt={
+        pending
+          ? {
+              jobId: pending.jobId,
+              previews: pending.items.map((item) => ({
+                id: item.id,
+                url: previews.get(item.storagePath) ?? null,
+              })),
+            }
+          : null
+      }
     />
   );
 }
