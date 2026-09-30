@@ -2,11 +2,11 @@ import { POST_ID_RE, type PostFormat } from "@/lib/posts";
 
 /**
  * Where a post image came from.
- * `upload` is the only source. ChatGPT DOT and other generated-art bots
- * are not built. A later source can be added here and on post_media.source
- * without a second board.
+ * `upload` is a file a person chose.
+ * `dot` is an image DOT returned into an existing slot.
+ * Same post_media rows. There is not a second board.
  */
-export const MEDIA_SOURCES = ["upload"] as const;
+export const MEDIA_SOURCES = ["upload", "dot"] as const;
 
 export type MediaSource = (typeof MEDIA_SOURCES)[number];
 

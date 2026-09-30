@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useId, useState, useTransition } from "react";
 import { deletePost, savePost, type PostFormState } from "@/app/(app)/post-actions";
+import type { ArtJobSnapshot } from "@/lib/art-job";
 import { formatLongDate, MAX_RANGE_DAYS } from "@/lib/calendar";
 import {
   CAPTION_MAX,
@@ -23,6 +24,7 @@ import {
   type PostFormat,
   type PostStatus,
 } from "@/lib/posts";
+import { ArtJobPanel } from "@/components/art-job-panel";
 import { PackMedia, type PackMediaItem } from "@/components/pack-media";
 import { statusClass } from "@/components/status-chip";
 import { buttonClass, dangerButtonClass, inputClass, quietButtonClass } from "@/components/styles";
@@ -42,12 +44,16 @@ export function PackEditor({
   slug,
   post,
   media,
+  artSnapshot,
+  artLoadError,
 }: {
   clientId: string;
   clientName: string;
   slug: string;
   post: Post;
   media: PackMediaItem[];
+  artSnapshot: ArtJobSnapshot;
+  artLoadError: string | null;
 }) {
   const router = useRouter();
   const platformListId = useId();
@@ -98,6 +104,15 @@ export function PackEditor({
           </Link>
         </div>
       </div>
+
+      <ArtJobPanel
+        clientId={clientId}
+        postId={post.id}
+        format={post.format}
+        media={media}
+        snapshot={artSnapshot}
+        loadError={artLoadError}
+      />
 
       <form action={action} className="mt-8 flex max-w-2xl flex-col gap-4">
         <input type="hidden" name="clientId" value={clientId} />

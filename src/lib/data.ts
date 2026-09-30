@@ -2,6 +2,12 @@ import { cache } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { brandFromRow, type BrandProfile } from "@/lib/brand";
 import {
+  ART_JOB_COLUMNS,
+  artJobFromRow,
+  artJobsQueryError,
+  type ArtJobSnapshot,
+} from "@/lib/art-job";
+import {
   BRAND_JOB_COLUMNS,
   brandJobFromRow,
   brandJobsQueryError,
@@ -351,6 +357,36 @@ export async function getBrandJobSnapshot(clientId: string): Promise<BrandJobSna
     latest: brandJobFromRow(latestResult.data),
     open: brandJobFromRow(openResult.data),
     hasCompleted: Boolean(doneResult.data),
+  };
+}
+
+export async function getArtJobSnapshot(postId: string): Promise<ArtJobSnapshot> {
+  if (!POST_ID_RE.test(postId)) return { latest: null, open: null };
+  const supabase = await createClient();
+  const [latestResult, openResult] = await Promise.all([
+    supabase
+      .from("art_jobs")
+      .select(ART_JOB_COLUMNS)
+      .eq("post_id", postId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("art_jobs")
+      .select(ART_JOB_COLUMNS)
+      .eq("post_id", postId)
+      .in("status", ["queued", "processing"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const error = latestResult.error ?? openResult.error;
+  if (error) throw new Error(artJobsQueryError(error));
+
+  return {
+    latest: artJobFromRow(latestResult.data),
+    open: artJobFromRow(openResult.data),
   };
 }
 

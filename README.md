@@ -13,14 +13,15 @@ What you can do now:
 - Add a teammate who already has an account
 - Open a client calendar, add a post, and change its date, range, status, and hook
 - Open a post’s pack and edit the hook, shot list and angles, caption, call to action, and images
+- Ask DOT to fill empty image slots on a pack (carousel, post or story image, or reel cover)
 - Download a GoHighLevel Social Planner Advance CSV for a client’s packs
 - Open a client’s Brand tab, pull a brand from website and social links, and edit the one brand profile for that client
 - Open Shot list, filter the shoot dates, and print the posts that are in creation
 
 What is not in this version:
 
-- Video upload, or a cover image taken from a video. Reel covers are images you upload yourself
-- Generated art, including ChatGPT DOT. `MEDIA_SOURCES` in `src/lib/media.ts` is `upload` only
+- Video upload, or a cover image taken from a video
+- Calling OpenAI, the Images API, or any other paid image model from this app. DOT draws the images outside Vercel
 - A logo on the brand
 - Netlify Blobs, or any connection to the old pilot
 
@@ -53,14 +54,18 @@ Open [http://localhost:3000](http://localhost:3000).
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `.env.local` and Vercel | The anon key, or the newer publishable key. Safe to expose to the browser. |
 | `BRAND_BOT_WEBHOOK_URL` | `.env.local` and Vercel, server only | Grok Bot routine URL (“POST to”). Not a `NEXT_PUBLIC_` variable. |
 | `BRAND_BOT_WEBHOOK_SECRET` | `.env.local` and Vercel, server only | Grok Bot sender key. The app sends `Authorization: Bearer <this key>`. Paste the key only, not the word Bearer. |
+| `DOT_SLACK_BOT_TOKEN` | `.env.local` and Vercel, server only | Slack bot token that posts an art job to DOT. Optional. Not a `NEXT_PUBLIC_` variable. |
+| `DOT_SLACK_CHANNEL_ID` | `.env.local` and Vercel, server only | Production value is `C0C5S889VTL` (`#content` in `agents-wby7363.slack.com`). If the token is set and this is blank, the app uses that channel. |
+| `DOT_ART_CALLBACK_SECRET` | Vercel Production, server only | Bearer secret for `/api/dot/art-jobs/*`. Required before DOT can call back. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Vercel Production, server only | Used only by those DOT routes to write the private `post-media` bucket. Studio pages do not use it. |
 
 Find the Supabase values in the dashboard under **Project Settings → API**. Find the webhook URL and sender key in the Grok Bot desktop app, on the routine that should research the brand.
 
-This app does not call OpenAI, Anthropic, or any other model API for brand generation. The webhook only wakes the bot. A 2xx response means the bot started. It does not mean the notes are written yet.
+This app does not call OpenAI, Anthropic, or any other model API. Brand research is a webhook that only wakes the Grok Bot. Image generation is a job for DOT. A 2xx response from Slack or the brand webhook means the message was accepted. It does not mean the notes or the images are saved yet.
 
-This version does not use the service role key inside the Next.js app. Leave it out of the app and out of `NEXT_PUBLIC_` variables. Anyone who can read a `NEXT_PUBLIC_` value can use it from the browser. The Grok Bot writes `clients.brand` and `brand_jobs.status` with the Supabase service role, or with Supabase MCP on Ian’s connection. That connection lives outside this repo.
+Studio pages use the anon key and the signed-in member. They do not use the service role key. The DOT image routes are the exception: `/api/dot/art-jobs` writes the private `post-media` bucket with `SUPABASE_SERVICE_ROLE_KEY` after the bearer secret matches. Never put that key, the Slack token, or the callback secret in a `NEXT_PUBLIC_` variable. Anyone who can read a `NEXT_PUBLIC_` value can use it from the browser. The Grok Bot still writes `clients.brand` and `brand_jobs.status` from outside this repo. Brand pulls do not use the DOT variables, and DOT does not use the brand bot variables.
 
-`.env.local` is gitignored. `.env.example` only has placeholders.
+`.env.local` is gitignored. `.env.example` lists the names. Secrets stay blank there. `DOT_SLACK_CHANNEL_ID` is set to the production channel `C0C5S889VTL`.
 
 ## Apply the database migration
 
@@ -71,6 +76,7 @@ The schema lives in `supabase/migrations/`. It creates:
 - `clients` — a board (`name`, `slug`, `brand` JSON)
 - `posts` — calendar slots on a client (`starts_on`, optional `ends_on`, status, title, hook, type, platform, and a `pack` JSON body)
 - `post_media` — images on a post (carousel, static, or cover) stored in the private `post-media` bucket
+- `art_jobs` — one DOT image request per post (`queued`, `processing`, `done`, or `failed`)
 
 Row Level Security is on. A member can see and edit every client in their own studio, and the posts on those clients. They cannot see another studio. People cannot insert themselves into a studio. The first insert into `agencies` adds the signed-in user as a member. Teammates are added later by email, and only if they already have an account.
 
@@ -78,7 +84,7 @@ Row Level Security is on. A member can see and edit every client in their own st
 
 1. Open the Supabase project.
 2. Go to **SQL Editor → New query**.
-3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration. Brand pulls add `20260930150000_brand_jobs.sql` after the brand shape file. That file also allows optional hex `colors` on `clients.brand`. Post images add `20260930183000_post_media.sql` after the pack file. It creates `post_media` and the private `post-media` storage bucket. Pack text fields on `posts` are unchanged.
+3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration. Brand pulls add `20260930150000_brand_jobs.sql` after the brand shape file. That file also allows optional hex `colors` on `clients.brand`. Post images add `20260930183000_post_media.sql` after the pack file. It creates `post_media` and the private `post-media` storage bucket. DOT art jobs add `20260930203000_art_jobs.sql` after the post image file. That file creates `art_jobs` and allows `source` `dot` on `post_media`. Pack text fields on `posts` are unchanged.
 4. Run it.
 
 ### Option B — Supabase CLI
@@ -183,7 +189,7 @@ The header row is the field-name row from GHL’s Advance sample (`advance-sampl
 | `content` | The pack caption. The call to action stays in the studio. |
 | `imageUrls (comma-separated)` | Carousel images in order, or the single image for a Post or Story. Empty for a Reel. At most 10 URLs, separated by a comma and a space. |
 | `videoUrls (comma-separated)` | Always empty. There is no video upload. |
-| `thumbnailUrl` | The cover image, when one is saved. You upload that image yourself. |
+| `thumbnailUrl` | The cover image, when one is saved. Upload it yourself, or let DOT fill a reel cover. |
 | `mediaOptimization (true/false)` | Present and empty. |
 | `type (post/story/reel)` | The first of these columns is Facebook. The second is Instagram. A post fills only the column for its platform (`Instagram` or `Facebook`). Reel, Story, and Post map to `reel`, `story`, and `post`. A carousel maps to `post`. Other platforms leave both columns empty. |
 
@@ -258,6 +264,55 @@ Signed-in check:
 9. Unset the webhook env vars, redeploy or restart, and pull again. The page asks an admin to set `BRAND_BOT_WEBHOOK_URL` and `BRAND_BOT_WEBHOOK_SECRET`, and no new row is created.
 10. Open a pack and save it. Shot list, caption, and call to action still save. Those pack fields are unchanged.
 
+## Generate with DOT
+
+On a pack, **Generate with DOT** queues an `art_jobs` row for that post. This app does not call OpenAI, the Images API, or any other image model. DOT makes the images outside Vercel. DOT is the Slack agent and the ChatGPT plugin. It reads the job and sends the images back. They land in the same slots as a manual upload: `post_media` in the private `post-media` bucket. `source` is `dot`. There is not a second media board.
+
+The button uses the saved brand and the saved pack: title, hook, type, platform, shot list and angles, caption, and call to action. Save the pack first if you just edited those. Notes for DOT are optional.
+
+Empty slots are filled. Images already on the pack stay. If every slot for that saved type is full, the page asks you to replace them or skip. Replace clears that type only (carousel slides, the single image, or the reel cover) and saves the new ones. Other slots stay. Skip leaves the pack as it is.
+
+A carousel can take up to 10 slides. A Post or Story uses one image. A Reel uses the cover. One open job per post. If a job is already queued or running, a second click keeps that job.
+
+The status chip says Queued, Processing, Done, or Failed. The page checks while the job is open. When it is done, the new images show on the pack. You can still upload and remove images by hand.
+
+### Slack
+
+Production posts to **#content** in the `agents-wby7363.slack.com` workspace. The channel id is `C0C5S889VTL`.
+
+1. Create a Slack bot that can post in that workspace, and invite it to **#content**.
+2. On Vercel Production, and in `.env.local` if you want it locally, set `DOT_SLACK_BOT_TOKEN` to the bot token. Server only. Do not use a `NEXT_PUBLIC_` name.
+3. Set `DOT_SLACK_CHANNEL_ID` to `C0C5S889VTL`. If the token is set and the channel id is blank, the app still posts to `C0C5S889VTL`.
+4. Choose **Generate with DOT**. The message starts with “DOT, pick up this art job.” It includes the job id, the post id, the client slug, the pack path (`/clients/{slug}/packs/{postId}`), the type, and the brief. A long brief is shortened in Slack. The plugin still gets the full brief.
+
+If the token is missing, the job is still queued. The page says DOT can pull it from the plugin. The brand bot variables are not required.
+
+### ChatGPT custom action
+
+The contract is [`docs/dot-art-openapi.yaml`](docs/dot-art-openapi.yaml).
+
+1. In ChatGPT, open the DOT custom GPT, then **Configure → Actions**, and import that file.
+2. Set the server URL to the production origin, such as `https://your-studio.vercel.app`. No path after the host.
+3. Set authentication to API key, Bearer. Paste the same value you will store in `DOT_ART_CALLBACK_SECRET`.
+4. On Vercel Production, set `DOT_ART_CALLBACK_SECRET` and `SUPABASE_SERVICE_ROLE_KEY`. Both are server only. The secret is the bearer token on these routes:
+   - `GET /api/dot/art-jobs/{id}`
+   - `POST /api/dot/art-jobs/{id}/complete`
+   - `POST /api/dot/art-jobs/{id}/fail`
+5. The service role key lets those routes write the private bucket. Studio pages do not use it. Do not add an OpenAI key to this Next app.
+
+`GET` returns the job, the brief, the brand, the pack path, and the slots to fill. The first read moves a queued job to processing. `complete` accepts image URLs (preferred) or base64, stores PNG, JPEG, or WebP up to 10MB, and marks the job done. `fail` stores the error and marks the job failed.
+
+Signed-in check:
+
+1. Apply `supabase/migrations/20260930203000_art_jobs.sql` if it is not on the database yet.
+2. Sign in, open a pack with an empty image slot, and choose **Generate with DOT**.
+3. In Supabase, `select id, post_id, status, replace_media from public.art_jobs order by created_at desc limit 5;` shows a queued row.
+4. Choose **Generate with DOT** again while that job is queued. A second row is not created.
+5. With the callback secret and the service role key set, `GET /api/dot/art-jobs/{id}` with `Authorization: Bearer …` returns the brief. The status becomes processing.
+6. `POST` complete with an https PNG URL. Refresh the pack. The image is in the empty slot. A manual upload in another slot is still there.
+7. Fill every slot for that type, then choose **Generate with DOT**. The page asks you to replace or skip. Skip leaves the images. Replace queues a job with `replace_media` true.
+8. Unset `DOT_SLACK_BOT_TOKEN` and generate again after the open job is done or failed. The new job is still queued, and the page says Slack is not connected.
+
 ## Shot list
 
 Shot list is the call sheet for one client. It reads the same `posts` rows as the calendar. It does not add a table. Any studio member who can open the client can open the sheet.
@@ -288,10 +343,12 @@ Signed-in check:
 
 ```
 src/app/                  pages (login, studio, client boards)
+src/app/api/dot/          DOT art job callbacks (bearer secret, no studio session)
 src/app/auth/confirm/     email link / magic link return
 src/proxy.ts              refreshes the Supabase session cookie
 src/lib/supabase/         browser client, server client, env check
 src/components/           forms and the shell
+docs/dot-art-openapi.yaml ChatGPT custom action for DOT
 supabase/migrations/      SQL
 supabase/config.toml      local Supabase CLI config
 ```
