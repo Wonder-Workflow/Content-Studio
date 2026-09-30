@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { PackEditor } from "@/components/pack-editor";
-import { getClientBySlug, getClientPost } from "@/lib/data";
+import { getClientBySlug, getClientPost, listPostMedia, signedMediaUrls } from "@/lib/data";
+import { PREVIEW_URL_SECONDS } from "@/lib/media";
 
 export async function generateMetadata({
   params,
@@ -26,6 +27,17 @@ export default async function PackPage({
   const post = await getClientPost(client.id, postId);
   if (!post) notFound();
 
+  const records = await listPostMedia(post.id);
+  let previews = new Map<string, string>();
+  try {
+    previews = await signedMediaUrls(
+      records.map((item) => item.storage_path),
+      PREVIEW_URL_SECONDS,
+    );
+  } catch {
+    previews = new Map();
+  }
+
   return (
     <PackEditor
       key={post.id}
@@ -33,6 +45,12 @@ export default async function PackPage({
       clientName={client.name}
       slug={client.slug}
       post={post}
+      media={records.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        position: item.position,
+        previewUrl: previews.get(item.storage_path) ?? null,
+      }))}
     />
   );
 }

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { normalizeRange } from "@/lib/calendar";
 import { getCurrentUser } from "@/lib/auth";
 import { getCurrentAgency } from "@/lib/data";
+import { POST_MEDIA_BUCKET } from "@/lib/media";
 import { readPackFields, type PackBody } from "@/lib/pack";
 import {
   HOOK_MAX,
@@ -212,6 +213,19 @@ export async function deletePost(
   const access = await requireClient(clientId);
   if (!access.ok) return { error: access.error };
   if (!POST_ID_RE.test(postId)) return { error: "That post is not on this calendar." };
+
+  const media = await access.supabase
+    .from("post_media")
+    .select("storage_path")
+    .eq("post_id", postId)
+    .eq("client_id", access.client.id);
+  if (media.error) return { error: dbError(media.error) };
+  const paths = (media.data ?? [])
+    .map((row) => row.storage_path)
+    .filter((path): path is string => typeof path === "string" && path.length > 0);
+  if (paths.length > 0) {
+    await access.supabase.storage.from(POST_MEDIA_BUCKET).remove(paths);
+  }
 
   const { data, error } = await access.supabase
     .from("posts")

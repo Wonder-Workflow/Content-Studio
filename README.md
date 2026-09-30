@@ -12,13 +12,16 @@ What you can do now:
 - Add client boards
 - Add a teammate who already has an account
 - Open a client calendar, add a post, and change its date, range, status, and hook
-- Open a post’s pack and edit the hook, shot list and angles, caption, and call to action
+- Open a post’s pack and edit the hook, shot list and angles, caption, call to action, and images
+- Download a GoHighLevel Social Planner Advance CSV for a client’s packs
 - Open a client’s Brand tab, pull a brand from website and social links, and edit the one brand profile for that client
 - Open Shot list, filter the shoot dates, and print the posts that are in creation
 
 What is not in this version:
 
-- Image upload, including a logo on the brand
+- Video upload, or a cover image taken from a video. Reel covers are images you upload yourself
+- Generated art, including ChatGPT DOT. `MEDIA_SOURCES` in `src/lib/media.ts` is `upload` only
+- A logo on the brand
 - Netlify Blobs, or any connection to the old pilot
 
 Each client row has a `brand` JSON column. It starts as `{}`. The Brand tab is the editor. There is no second brand store.
@@ -67,6 +70,7 @@ The schema lives in `supabase/migrations/`. It creates:
 - `agency_members` — who belongs to it (`user_id`, `agency_id`, no role)
 - `clients` — a board (`name`, `slug`, `brand` JSON)
 - `posts` — calendar slots on a client (`starts_on`, optional `ends_on`, status, title, hook, type, platform, and a `pack` JSON body)
+- `post_media` — images on a post (carousel, static, or cover) stored in the private `post-media` bucket
 
 Row Level Security is on. A member can see and edit every client in their own studio, and the posts on those clients. They cannot see another studio. People cannot insert themselves into a studio. The first insert into `agencies` adds the signed-in user as a member. Teammates are added later by email, and only if they already have an account.
 
@@ -74,7 +78,7 @@ Row Level Security is on. A member can see and edit every client in their own st
 
 1. Open the Supabase project.
 2. Go to **SQL Editor → New query**.
-3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration. Brand pulls add `20260930150000_brand_jobs.sql` after the brand shape file. That file also allows optional hex `colors` on `clients.brand`. Pack fields on `posts` are unchanged.
+3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration. Brand pulls add `20260930150000_brand_jobs.sql` after the brand shape file. That file also allows optional hex `colors` on `clients.brand`. Post images add `20260930183000_post_media.sql` after the pack file. It creates `post_media` and the private `post-media` storage bucket. Pack text fields on `posts` are unchanged.
 4. Run it.
 
 ### Option B — Supabase CLI
@@ -138,7 +142,15 @@ Open a pack in either place:
 - On the calendar, click a card, then **Open pack**.
 - On the Packs tab, click the post.
 
-The pack editor has one hook, plus title, status, type, platform, dates, shot list and angles, caption, and call to action. Save, then refresh. The text is still there. The calendar card shows the saved title, status, and dates.
+The pack editor has one hook, plus title, status, type, platform, dates, images, shot list and angles, caption, and call to action. Save, then refresh. The text is still there. Images save when you add, reorder, or remove them, and they are still there after a refresh. The calendar card shows the saved title, status, and dates.
+
+Image slots follow the type:
+
+- **Carousel** — up to 10 images, in order, plus a cover
+- **Post** or **Story** — one image, plus a cover
+- **Reel** — cover only. Upload the cover yourself. Nothing is grabbed from a video
+
+PNG, JPEG, and WebP only. Each file can be up to 10MB. Video files are rejected.
 
 Signed-in check:
 
@@ -149,6 +161,35 @@ Signed-in check:
 5. Refresh the pack page. The values you typed are still there.
 6. Open the calendar on that post’s month. The card shows the saved title and status, and it sits on the saved dates.
 7. Open Shot list for that client. The post shows up when its dates overlap the range and its status is In-creation. Brand is a separate tab.
+8. Apply `supabase/migrations/20260930183000_post_media.sql` if it is not on the database yet.
+9. On the pack, add a PNG or JPEG, refresh, and confirm it is still there. Remove it. A video file is refused.
+
+## GoHighLevel CSV
+
+On a client’s Packs tab, **Download GHL CSV** saves one Advance CSV for every post on that client. In GoHighLevel:
+
+1. Open **Marketing → Social Planner**.
+2. Choose **New Post → CSV Upload** (some accounts say **Upload from CSV**).
+3. Choose **Advance** (Advanced), not Basic.
+4. Upload the file, pick the social accounts, review anything GHL flags, then import.
+
+Upload the file at least 10 minutes before the earliest time in it. GHL accepts 90 posts per file. If the packs page says there are more, split the file first.
+
+The header row is the field-name row from GHL’s Advance sample (`advance-sample.csv`, May 2025). The sample’s first row is only a group label (All Social, Facebook, Instagram, …) and is not in this file. `thumbnailUrl` is included because the 15 May 2026 help article added it. It is placed after `videoUrls (comma-separated)`.
+
+| CSV column | What Content Studio writes |
+| --- | --- |
+| `postAtSpecificTime (YYYY-MM-DD HH:mm:ss)` | The post’s start date at `09:00:00`. The studio stores a date, not a time. GHL reads that clock time in the location’s timezone. Change it in the file if you need another hour. |
+| `content` | The pack caption. The call to action stays in the studio. |
+| `imageUrls (comma-separated)` | Carousel images in order, or the single image for a Post or Story. Empty for a Reel. At most 10 URLs, separated by a comma and a space. |
+| `videoUrls (comma-separated)` | Always empty. There is no video upload. |
+| `thumbnailUrl` | The cover image, when one is saved. You upload that image yourself. |
+| `mediaOptimization (true/false)` | Present and empty. |
+| `type (post/story/reel)` | The first of these columns is Facebook. The second is Instagram. A post fills only the column for its platform (`Instagram` or `Facebook`). Reel, Story, and Post map to `reel`, `story`, and `post`. A carousel maps to `post`. Other platforms leave both columns empty. |
+
+Image links are signed HTTPS URLs from the private `post-media` bucket. They last 7 days. Import the CSV before they expire. GHL has to be able to fetch the URL without a login.
+
+There is no new public environment variable. Storage uses `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and the migration’s RLS policies.
 
 ## Brand
 

@@ -18,9 +18,12 @@ import {
   POST_STATUSES,
   STATUS_LABELS,
   TITLE_MAX,
+  isPostFormat,
   type Post,
+  type PostFormat,
   type PostStatus,
 } from "@/lib/posts";
+import { PackMedia, type PackMediaItem } from "@/components/pack-media";
 import { statusClass } from "@/components/status-chip";
 import { buttonClass, dangerButtonClass, inputClass, quietButtonClass } from "@/components/styles";
 
@@ -38,16 +41,19 @@ export function PackEditor({
   clientName,
   slug,
   post,
+  media,
 }: {
   clientId: string;
   clientName: string;
   slug: string;
   post: Post;
+  media: PackMediaItem[];
 }) {
   const router = useRouter();
   const platformListId = useId();
   const [state, action, pending] = useActionState(savePost, initialState);
   const [status, setStatus] = useState<PostStatus>(post.status);
+  const [format, setFormat] = useState<PostFormat>(post.format);
   const [start, setStart] = useState(post.starts_on);
   const [end, setEnd] = useState(post.ends_on ?? "");
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -125,7 +131,15 @@ export function PackEditor({
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5 text-sm">
             <span className="font-medium">Type</span>
-            <select className={inputClass} name="format" defaultValue={post.format}>
+            <select
+              className={inputClass}
+              name="format"
+              value={format}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (isPostFormat(next)) setFormat(next);
+              }}
+            >
               {POST_FORMATS.map((format) => (
                 <option key={format} value={format}>
                   {format}
@@ -210,6 +224,8 @@ export function PackEditor({
           Leave the end date blank for one day. A range shows on every day it covers, up to{" "}
           {MAX_RANGE_DAYS} days.
         </p>
+
+        <PackMedia clientId={clientId} postId={post.id} format={format} media={media} />
 
         <label className="flex flex-col gap-1.5 text-sm">
           <span className="font-medium">Shot list and angles</span>
