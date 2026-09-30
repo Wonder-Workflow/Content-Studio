@@ -13,14 +13,15 @@ What you can do now:
 - Add a teammate who already has an account
 - Open a client calendar, add a post, and change its date, range, status, and hook
 - Open a post’s pack and edit the hook, shot list and angles, caption, and call to action
+- Open a client’s Brand tab and edit the one brand profile for that client
 
 What is not in this version:
 
-- A brand editor or shot list
-- Image upload
+- A shot list
+- Image upload, including a logo on the brand
 - Netlify Blobs, or any connection to the old pilot
 
-Each client row has a `brand` JSON column. It starts as `{}` and waits for a later editor.
+Each client row has a `brand` JSON column. It starts as `{}`. The Brand tab is the editor. There is no second brand store.
 
 ## Run it locally
 
@@ -69,7 +70,7 @@ Row Level Security is on. A member can see and edit every client in their own st
 
 1. Open the Supabase project.
 2. Go to **SQL Editor → New query**.
-3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`.
+3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration.
 4. Run it.
 
 ### Option B — Supabase CLI
@@ -120,7 +121,7 @@ Open a client from the studio page. The Calendar tab is the month grid at `/clie
 - Drag a card to another day to move the whole range, or change the dates in the editor.
 - Previous, Today, and Next change the month. The month stays in the URL as `?month=2026-09`.
 - Refresh the page. The post is still there.
-- Brand and Shot list stay placeholders.
+- Shot list stays a placeholder. Brand is edited on the Brand tab.
 
 There is no sample calendar data. An empty month is the starting point.
 
@@ -143,7 +144,32 @@ Signed-in check:
 4. Change the hook, title, status, type, platform, dates, shot list and angles, caption, and call to action. Save.
 5. Refresh the pack page. The values you typed are still there.
 6. Open the calendar on that post’s month. The card shows the saved title and status, and it sits on the saved dates.
-7. Brand and Shot list still show their placeholders.
+7. Shot list still shows its placeholder. Brand is a separate tab.
+
+## Brand
+
+Brand is the one set of notes for a client. It is stored on `clients.brand`. The Brand tab is the only editor. Calendar and packs do not keep a second copy.
+
+A saved profile has these text keys:
+
+- `identity.name` (80), `identity.tagline` (160), `identity.positioning` (400)
+- `audience` (800)
+- `offers` (2000) — one stay type or service per line
+- `voice.tone` (300), `voice.caption_pattern` (2000)
+- `do` (2000) and `dont` (2000) — one line per bullet
+- `visual_notes` (2000) — colors and imagery, text only
+- `phrases` (800) — soft calls to action and lines they like
+
+`{}` is the empty brand. The form shows blank fields and placeholders. Save writes every key, including empty strings. Any studio member who can open the client can edit the brand. There is no logo upload.
+
+Signed-in check:
+
+1. Apply `supabase/migrations/20260930120000_clients_brand_shape.sql` if it is not on the database yet. Before you run it, check `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Every row must already be empty or match the keys above. If one does not, clear it with `update public.clients set brand = '{}'::jsonb where id = '…';` and then run the migration.
+2. Sign in, open a client, and open Brand.
+3. With the fields empty, choose **Save brand**. Refresh. The fields are still empty, and the page does not error.
+4. Fill brand name, tagline, positioning, audience, offers, tone, caption pattern, do, don't, visual notes, and phrases. Save.
+5. Refresh. The same text is still there.
+6. Open the same client as another studio member. The same brand is there, and that member can change it and save.
 
 ## Project layout
 

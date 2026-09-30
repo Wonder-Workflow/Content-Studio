@@ -87,6 +87,9 @@ export function PackEditor({
           >
             Calendar
           </Link>
+          <Link className={quietButtonClass} href={`/clients/${slug}/brand`}>
+            Brand
+          </Link>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { getCurrentUser } from "@/lib/auth";
+import { brandFromRow, type BrandProfile } from "@/lib/brand";
 import { packFromRow } from "@/lib/pack";
 import { POST_ID_RE, isPostFormat, isPostStatus, type Post } from "@/lib/posts";
 import { createClient } from "@/lib/supabase/server";
@@ -17,7 +18,7 @@ export type ClientSummary = {
 };
 
 export type ClientRecord = ClientSummary & {
-  brand: Record<string, unknown>;
+  brand: BrandProfile;
 };
 
 export type AgencyMember = {
@@ -30,14 +31,6 @@ type AgencyEmbed = {
   id: string;
   name: string;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asBrand(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
 
 export const getCurrentAgency = cache(async (): Promise<Agency | null> => {
   const user = await getCurrentUser();
@@ -201,7 +194,7 @@ export const getClientBySlug = cache(
       name: data.name,
       slug: data.slug,
       created_at: data.created_at,
-      brand: asBrand(data.brand),
+      brand: brandFromRow(data.brand),
     };
   },
 );
