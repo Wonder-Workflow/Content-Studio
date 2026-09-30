@@ -2,7 +2,8 @@ import { cache } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { brandFromRow, type BrandProfile } from "@/lib/brand";
 import { packFromRow } from "@/lib/pack";
-import { POST_ID_RE, isPostFormat, isPostStatus, type Post } from "@/lib/posts";
+import { POST_ID_RE, isPostFormat, isPostStatus, type Post, type PostStatus } from "@/lib/posts";
+import { postOverlapsRange } from "@/lib/shot-list";
 import { createClient } from "@/lib/supabase/server";
 
 export type Agency = {
@@ -140,6 +141,50 @@ export async function listPostsForMonth(
     .sort(
       (a, b) => a.starts_on.localeCompare(b.starts_on) || a.title.localeCompare(b.title),
     );
+}
+
+export async function listPostsOverlapping(
+  clientId: string,
+  rangeStart: string,
+  rangeEnd: string,
+  statuses: readonly PostStatus[],
+): Promise<Post[]> {
+  if (statuses.length === 0) return [];
+
+  const supabase = await createClient();
+  const statusList = [...statuses];
+  const [startedHere, stillRunning] = await Promise.all([
+    supabase
+      .from("posts")
+      .select(postColumns)
+      .eq("client_id", clientId)
+      .in("status", statusList)
+      .gte("starts_on", rangeStart)
+      .lte("starts_on", rangeEnd),
+    supabase
+      .from("posts")
+      .select(postColumns)
+      .eq("client_id", clientId)
+      .in("status", statusList)
+      .lt("starts_on", rangeStart)
+      .gte("ends_on", rangeStart),
+  ]);
+
+  if (startedHere.error) throw new Error(startedHere.error.message);
+  if (stillRunning.error) throw new Error(stillRunning.error.message);
+
+  const allowed = new Set<string>(statusList);
+  const byId = new Map<string, Post>();
+  for (const row of [...(startedHere.data ?? []), ...(stillRunning.data ?? [])]) {
+    const post = asPost(row);
+    if (!allowed.has(post.status)) continue;
+    if (!postOverlapsRange(post.starts_on, post.ends_on, rangeStart, rangeEnd)) continue;
+    byId.set(post.id, post);
+  }
+
+  return [...byId.values()].sort(
+    (a, b) => a.starts_on.localeCompare(b.starts_on) || a.title.localeCompare(b.title),
+  );
 }
 
 export async function listClientPosts(clientId: string): Promise<Post[]> {

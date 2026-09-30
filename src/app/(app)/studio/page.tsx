@@ -44,8 +44,8 @@ export default async function StudioPage() {
         </p>
         <h1 className="mt-3 font-display text-4xl tracking-tight">{agency.name}</h1>
         <p className="mt-3 max-w-xl text-sm leading-6 text-ink-soft">
-          Each client is a board. Open one to schedule posts, edit packs, and
-          keep the brand notes. The shot list is still a placeholder.
+          Each client is a board. Open one to schedule posts, edit packs, keep
+          the brand notes, and print a shot list.
         </p>
 
         {clients.length === 0 ? (

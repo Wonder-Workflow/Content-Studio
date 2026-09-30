@@ -10,7 +10,7 @@ export function AppHeader({
   agencyName: string | null;
 }) {
   return (
-    <header className="border-b border-line bg-paper-2/90">
+    <header className="border-b border-line bg-paper-2/90 print:hidden">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-5 py-4">
         <Link href="/studio" className="flex items-center gap-3">
           <span className="inline-flex size-8 items-center justify-center border border-gold font-display text-xs tracking-wide text-gold">
