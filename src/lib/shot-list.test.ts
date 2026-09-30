@@ -34,6 +34,7 @@ function post(overrides: Partial<Post> = {}): Post {
       caption: "Leave this off the sheet",
       cta: "Book a call",
     },
+    batchId: null,
     ...overrides,
   };
 }

@@ -198,6 +198,17 @@ components:
         replace:
           type: boolean
           description: True when the studio confirmed that filled slots should be replaced.
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Set when this job belongs to a Generate batch. Omit or null for a single pack.
+        hold_media:
+          type: boolean
+          description: |
+            When true, draw a full new set. Content Studio keeps the images already
+            on the pack until someone accepts the new ones. Do not treat this as a
+            delete. The brief says the same thing.
         error:
           type: string
           nullable: true

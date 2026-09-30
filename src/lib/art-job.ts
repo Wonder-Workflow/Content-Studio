@@ -23,7 +23,7 @@ export const ART_JOB_STATUS_LABELS: Record<ArtJobStatus, string> = {
 };
 
 export const ART_JOB_COLUMNS =
-  "id, client_id, post_id, status, error, brief, replace_media, created_at, updated_at, completed_at";
+  "id, client_id, post_id, batch_id, status, error, brief, replace_media, hold_media, created_at, updated_at, completed_at";
 
 export const ART_IN_PROGRESS = "DOT is already working on this pack.";
 
@@ -44,10 +44,13 @@ export type ArtJob = {
   id: string;
   clientId: string;
   postId: string;
+  batchId: string | null;
   status: ArtJobStatus;
   error: string | null;
   notes: string | null;
   replace: boolean;
+  /** True when new images should wait until the studio accepts them. */
+  hold: boolean;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -209,7 +212,10 @@ function slotNoun(format: PostFormat, count: number): string {
   return count === 1 ? "1 image" : `${count} images`;
 }
 
-function slotInstruction(plan: ArtSlotPlan): string {
+function slotInstruction(plan: ArtSlotPlan, hold = false): string {
+  if (hold) {
+    return `Images to make: a new ${slotNoun(plan.format, plan.count)} for review. Leave the images already on the pack. The studio will accept these or keep the current ones.`;
+  }
   if (plan.replace) {
     return `Images to make: replace ${slotNoun(plan.format, plan.count)}.`;
   }
@@ -226,13 +232,15 @@ export function buildArtBrief(input: {
   post: ArtBriefPost;
   notes: string | null;
   slots: ArtSlotPlan;
+  /** When true, DOT draws a new set and the current images stay until accept. */
+  hold?: boolean;
 }): string {
   const lines: string[] = ["DOT, make the images for this pack."];
   pushField(lines, "Client", `${input.clientName} (${input.clientSlug})`);
   lines.push(`Pack: ${packPath(input.clientSlug, input.postId)}`);
   pushField(lines, "Type", input.post.format);
   pushField(lines, "Platform", input.post.platform);
-  lines.push(slotInstruction(input.slots));
+  lines.push(slotInstruction(input.slots, input.hold === true));
 
   pushField(lines, "Brand name", input.brand.identity.name);
   pushField(lines, "Tagline", input.brand.identity.tagline);
@@ -343,6 +351,8 @@ export function artJobFromRow(value: unknown): ArtJob | null {
     error: typeof row.error === "string" && row.error ? row.error : null,
     notes: typeof row.brief === "string" && row.brief ? row.brief : null,
     replace: row.replace_media === true,
+    hold: row.hold_media === true,
+    batchId: typeof row.batch_id === "string" ? row.batch_id : null,
     createdAt: typeof row.created_at === "string" ? row.created_at : "",
     updatedAt: typeof row.updated_at === "string" ? row.updated_at : "",
     completedAt: typeof row.completed_at === "string" ? row.completed_at : null,

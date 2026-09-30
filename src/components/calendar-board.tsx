@@ -119,6 +119,9 @@ export function CalendarBoard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link className={buttonClass} href={`/clients/${slug}/batch`}>
+            Generate batch
+          </Link>
           <button
             className={buttonClass}
             type="button"

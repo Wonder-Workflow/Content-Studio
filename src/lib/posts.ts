@@ -40,6 +40,8 @@ export type Post = {
   starts_on: string;
   ends_on: string | null;
   pack: PackBody;
+  /** Set when Generate batch created this post. Null for posts added by hand. */
+  batchId: string | null;
 };
 
 export function isPostStatus(value: string): value is PostStatus {
