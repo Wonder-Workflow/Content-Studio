@@ -13,7 +13,7 @@ What you can do now:
 - Add a teammate who already has an account
 - Open a client calendar, add a post, and change its date, range, status, and hook
 - Open a post’s pack and edit the hook, shot list and angles, caption, and call to action
-- Open a client’s Brand tab and edit the one brand profile for that client
+- Open a client’s Brand tab, pull a brand from website and social links, and edit the one brand profile for that client
 - Open Shot list, filter the shoot dates, and print the posts that are in creation
 
 What is not in this version:
@@ -48,10 +48,14 @@ Open [http://localhost:3000](http://localhost:3000).
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | `.env.local` and Vercel | Project URL, like `https://abcdef.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `.env.local` and Vercel | The anon key, or the newer publishable key. Safe to expose to the browser. |
+| `BRAND_BOT_WEBHOOK_URL` | `.env.local` and Vercel, server only | Grok Bot routine URL (“POST to”). Not a `NEXT_PUBLIC_` variable. |
+| `BRAND_BOT_WEBHOOK_SECRET` | `.env.local` and Vercel, server only | Grok Bot sender key. The app sends `Authorization: Bearer <this key>`. Paste the key only, not the word Bearer. |
 
-Find both in the Supabase dashboard under **Project Settings → API**.
+Find the Supabase values in the dashboard under **Project Settings → API**. Find the webhook URL and sender key in the Grok Bot desktop app, on the routine that should research the brand.
 
-This version does not use the service role key. Leave it out of the app and out of `NEXT_PUBLIC_` variables. Anyone who can read a `NEXT_PUBLIC_` value can use it from the browser.
+This app does not call OpenAI, Anthropic, or any other model API for brand generation. The webhook only wakes the bot. A 2xx response means the bot started. It does not mean the notes are written yet.
+
+This version does not use the service role key inside the Next.js app. Leave it out of the app and out of `NEXT_PUBLIC_` variables. Anyone who can read a `NEXT_PUBLIC_` value can use it from the browser. The Grok Bot writes `clients.brand` and `brand_jobs.status` with the Supabase service role, or with Supabase MCP on Ian’s connection. That connection lives outside this repo.
 
 `.env.local` is gitignored. `.env.example` only has placeholders.
 
@@ -70,7 +74,7 @@ Row Level Security is on. A member can see and edit every client in their own st
 
 1. Open the Supabase project.
 2. Go to **SQL Editor → New query**.
-3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration.
+3. Paste each file in `supabase/migrations/` in name order, one query at a time. If the earlier files are already applied, run only the ones you have not applied yet. The calendar uses `20260929234500_posts.sql`. Packs add `20260930013000_posts_pack.sql`. Brand adds `20260930120000_clients_brand_shape.sql`. Before that brand file, run `select id, name, brand from public.clients where brand <> '{}'::jsonb;`. Each row must already match the brand shape (or you clear it). This app did not write brand before that migration. Brand pulls add `20260930150000_brand_jobs.sql` after the brand shape file. That file also allows optional hex `colors` on `clients.brand`. Pack fields on `posts` are unchanged.
 4. Run it.
 
 ### Option B — Supabase CLI
@@ -105,7 +109,7 @@ Ian keeps the deploy.
 
 1. Push this repo to GitHub (the pull request does that).
 2. In Vercel, **Add New → Project** and import the GitHub repo. Framework preset is Next.js. Root directory is the repo root.
-3. Add the same two environment variables as `.env.local` for Production (and Preview, if you want preview logins). Set them before the first deploy. Next.js reads `NEXT_PUBLIC_` values at build time, so if you add them later, redeploy.
+3. Add the same environment variables as `.env.local` for Production (and Preview, if you want preview logins). Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` before the first deploy. Next.js reads `NEXT_PUBLIC_` values at build time, so if you add them later, redeploy. Add `BRAND_BOT_WEBHOOK_URL` and `BRAND_BOT_WEBHOOK_SECRET` when the Grok Bot routine is ready. Those two are server-only. After you add or change them, redeploy.
 4. Deploy.
 5. Copy the deployment URL back into Supabase **Authentication → URL configuration** as a redirect URL (`https://YOUR-VERCEL-DOMAIN/auth/confirm`). Add the bare site URL as well if you want it as the Site URL.
 
@@ -157,8 +161,9 @@ A saved profile has these text keys:
 - `offers` (2000) — one stay type or service per line
 - `voice.tone` (300), `voice.caption_pattern` (2000)
 - `do` (2000) and `dont` (2000) — one line per bullet
-- `visual_notes` (2000) — colors and imagery, text only
+- `visual_notes` (2000) — light and imagery, text only
 - `phrases` (800) — soft calls to action and lines they like
+- `colors` — optional hex swatches: `primary`, `secondary`, `accent`, `background`, `text`. Each value is `#RGB` or `#RRGGBB`. The key is omitted when every swatch is blank.
 
 `{}` is the empty brand. The form shows blank fields and placeholders. Save writes every key, including empty strings. Any studio member who can open the client can edit the brand. There is no logo upload.
 
@@ -170,6 +175,47 @@ Signed-in check:
 4. Fill brand name, tagline, positioning, audience, offers, tone, caption pattern, do, don't, visual notes, and phrases. Save.
 5. Refresh. The same text is still there.
 6. Open the same client as another studio member. The same brand is there, and that member can change it and save.
+7. Optional: fill Primary with `#1B3A4B` (or `#abc`). Save. Refresh. The swatch is still there. A value like `navy` is rejected. Clearing the field and saving removes that swatch.
+
+## Pull brand from links
+
+Above the brand form, **Pull brand from links** queues a `brand_jobs` row and wakes a Grok Bot routine. The bot is not in this repo. It researches the website and social links, then writes `clients.brand`. People still edit and save in the form.
+
+The webhook body is JSON:
+
+```json
+{
+  "job_id": "…",
+  "client_id": "…",
+  "website_url": "https://harbor.example/",
+  "social_urls": ["https://www.instagram.com/harbor"],
+  "regenerate": false,
+  "notes": "Optional."
+}
+```
+
+`notes` is left out when the field is blank. The request header is `Authorization: Bearer <BRAND_BOT_WEBHOOK_SECRET>`. The app waits only for the bot to accept the POST. It does not wait for the research to finish.
+
+Job status is `queued`, `processing`, `done`, or `failed`. The page polls while a pull is queued or running. When it reaches **done**, the page reloads the brand notes. **Refresh brand** does the same thing if the notes still look old.
+
+One completed pull is kept per client. Another **Pull** is refused until **Regenerate**. A failed pull can be tried again. If a pull is already queued or running, a second Pull returns that job instead of creating another. Regenerate marks the open job failed and starts a new one.
+
+If the webhook env vars are missing, the button returns an error and does not insert a row. Ask an admin to set them on Vercel (and in `.env.local` for local runs).
+
+The bot should set `brand_jobs.status` to `processing`, then `done` or `failed`, and write `clients.brand` in the shape above (including optional `colors`). Use the Supabase service role, or Supabase MCP with Ian’s connection. Studio members can also update a job’s status, which is enough to debug a stuck row. Members cannot delete jobs.
+
+Signed-in check:
+
+1. Apply `supabase/migrations/20260930150000_brand_jobs.sql` if it is not on the database yet.
+2. Set `BRAND_BOT_WEBHOOK_URL` and `BRAND_BOT_WEBHOOK_SECRET` on the server. Use a routine you can watch, or a request bin, so you can see the POST.
+3. Sign in, open a client, and open Brand.
+4. Enter a website and, if you want, one social link per line. Choose **Pull brand from links**.
+5. In Supabase, `select id, client_id, status, website_url, social_urls, regenerate from public.brand_jobs order by created_at desc limit 5;` shows a `queued` row (or `failed` if the webhook rejected the call). The request bin or the bot’s run history shows the JSON body and `Authorization: Bearer …`.
+6. Choose **Pull brand from links** again while that job is still queued. A second row is not created.
+7. Mark the row `done` (the bot does this, or you can update it while signed in). The status line says done. Choose **Refresh brand** if the notes have not appeared yet. Edit a field and **Save brand**. Refresh. The edit is still there.
+8. With a done job, **Pull brand from links** is replaced by **Regenerate**. Starting it inserts another row with `regenerate` true and wakes the webhook again.
+9. Unset the webhook env vars, redeploy or restart, and pull again. The page asks an admin to set `BRAND_BOT_WEBHOOK_URL` and `BRAND_BOT_WEBHOOK_SECRET`, and no new row is created.
+10. Open a pack and save it. Shot list, caption, and call to action still save. Those pack fields are unchanged.
 
 ## Shot list
 

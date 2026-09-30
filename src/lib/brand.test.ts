@@ -120,6 +120,7 @@ test("readBrandFields trims text and writes only the brand keys", () => {
   assert.equal("notes" in result.brand, false);
   assert.equal("clientId" in result.brand, false);
   assert.equal(isBlankBrand(result.brand), false);
+  assert.equal(result.brand.colors, undefined);
 });
 
 test("readBrandFields accepts an empty form as an empty profile", () => {
@@ -128,6 +129,48 @@ test("readBrandFields accepts an empty form as an empty profile", () => {
   if (!result.ok) return;
   assert.deepEqual(result.brand, emptyBrand());
   assert.equal(isBlankBrand(result.brand), true);
+});
+
+test("brandFromRow keeps valid hex colors and drops bad ones", () => {
+  assert.deepEqual(
+    brandFromRow({
+      colors: {
+        primary: "#AbC",
+        secondary: "blue",
+        accent: "#112233",
+        background: "#gg0000",
+        text: "  #010203  ",
+        extra: "#ffffff",
+      },
+    }),
+    {
+      ...emptyBrand(),
+      colors: {
+        primary: "#aabbcc",
+        accent: "#112233",
+        text: "#010203",
+      },
+    },
+  );
+  assert.equal(isBlankBrand(brandFromRow({ colors: { primary: "#112233" } })), false);
+  assert.equal(brandFromRow({ colors: ["#fff"] }).colors, undefined);
+});
+
+test("readBrandFields stores hex colors and rejects a bad swatch", () => {
+  const form = new FormData();
+  form.set("colorPrimary", " #abc ");
+  form.set("colorText", "#010203");
+  const saved = readBrandFields(form);
+  assert.equal(saved.ok, true);
+  if (!saved.ok) return;
+  assert.deepEqual(saved.brand.colors, { primary: "#aabbcc", text: "#010203" });
+
+  const bad = new FormData();
+  bad.set("colorAccent", "navy");
+  const rejected = readBrandFields(bad);
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.match(rejected.error, /Accent color/);
 });
 
 test("readBrandFields rejects a tagline past the limit", () => {

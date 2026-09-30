@@ -14,9 +14,12 @@
  *   dont                     what to leave out, one line per bullet (2000)
  *   visual_notes             colors and imagery; text only (2000)
  *   phrases                  soft CTAs and lines they like, one per line (800)
+ *   colors                   optional hex swatches (primary, secondary, accent,
+ *                            background, text). Omitted when every swatch is blank.
  *
  * {} is the column default and reads as an empty profile.
- * A save writes every key, including empty strings.
+ * A save writes every text key, including empty strings.
+ * colors is included only when at least one swatch is a hex color.
  * Lengths match clients_brand_shape in
  * supabase/migrations/20260930120000_clients_brand_shape.sql.
  */
@@ -32,6 +35,19 @@ export const BRAND_DO_MAX = 2000;
 export const BRAND_DONT_MAX = 2000;
 export const BRAND_VISUAL_MAX = 2000;
 export const BRAND_PHRASES_MAX = 800;
+
+export const BRAND_COLOR_KEYS = [
+  "primary",
+  "secondary",
+  "accent",
+  "background",
+  "text",
+] as const;
+
+export type BrandColorKey = (typeof BRAND_COLOR_KEYS)[number];
+
+/** Hex colors only. Each key is optional. Missing means no swatch was saved. */
+export type BrandColors = Partial<Record<BrandColorKey, string>>;
 
 export type BrandProfile = {
   identity: {
@@ -49,6 +65,7 @@ export type BrandProfile = {
   dont: string;
   visual_notes: string;
   phrases: string;
+  colors?: BrandColors;
 };
 
 export function emptyBrand(): BrandProfile {
@@ -64,6 +81,11 @@ export function emptyBrand(): BrandProfile {
   };
 }
 
+export function brandHasColors(colors: BrandColors | undefined): boolean {
+  if (!colors) return false;
+  return BRAND_COLOR_KEYS.some((key) => Boolean(colors[key]));
+}
+
 export function isBlankBrand(brand: BrandProfile): boolean {
   return (
     brand.identity.name === "" &&
@@ -76,8 +98,36 @@ export function isBlankBrand(brand: BrandProfile): boolean {
     brand.do === "" &&
     brand.dont === "" &&
     brand.visual_notes === "" &&
-    brand.phrases === ""
+    brand.phrases === "" &&
+    !brandHasColors(brand.colors)
   );
+}
+
+/** #RGB or #RRGGBB, stored as lowercase #rrggbb. Anything else is dropped. */
+export function normalizeHex(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const match = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(value.trim());
+  if (!match) return null;
+  const digits = match[1].toLowerCase();
+  const full =
+    digits.length === 3
+      ? digits
+          .split("")
+          .map((digit) => digit + digit)
+          .join("")
+      : digits;
+  return `#${full}`;
+}
+
+export function colorsFromRow(value: unknown): BrandColors | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const colors: BrandColors = {};
+  for (const key of BRAND_COLOR_KEYS) {
+    const hex = normalizeHex(record[key]);
+    if (hex) colors[key] = hex;
+  }
+  return brandHasColors(colors) ? colors : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -109,7 +159,7 @@ export function brandFromRow(value: unknown): BrandProfile {
   if (!record) return emptyBrand();
   const identity = asRecord(record.identity);
   const voice = asRecord(record.voice);
-  return {
+  const brand: BrandProfile = {
     identity: {
       name: asLine(identity?.name),
       tagline: asLine(identity?.tagline),
@@ -126,6 +176,9 @@ export function brandFromRow(value: unknown): BrandProfile {
     visual_notes: asText(record.visual_notes),
     phrases: asText(record.phrases),
   };
+  const colors = colorsFromRow(record.colors);
+  if (colors) brand.colors = colors;
+  return brand;
 }
 
 function cleanLine(
@@ -200,24 +253,55 @@ export function readBrandFields(
   const phrases = cleanBlock(formData.get("phrases"), BRAND_PHRASES_MAX, "Phrases");
   if (phrases.error) return { ok: false, error: phrases.error };
 
-  return {
-    ok: true,
-    brand: {
-      identity: {
-        name: name.text,
-        tagline: tagline.text,
-        positioning: positioning.text,
-      },
-      audience: audience.text,
-      offers: offers.text,
-      voice: {
-        tone: tone.text,
-        caption_pattern: captionPattern.text,
-      },
-      do: dos.text,
-      dont: donts.text,
-      visual_notes: visualNotes.text,
-      phrases: phrases.text,
+  const colors = readColorFields(formData);
+  if (!colors.ok) return colors;
+
+  const brand: BrandProfile = {
+    identity: {
+      name: name.text,
+      tagline: tagline.text,
+      positioning: positioning.text,
     },
+    audience: audience.text,
+    offers: offers.text,
+    voice: {
+      tone: tone.text,
+      caption_pattern: captionPattern.text,
+    },
+    do: dos.text,
+    dont: donts.text,
+    visual_notes: visualNotes.text,
+    phrases: phrases.text,
   };
+  if (colors.colors) brand.colors = colors.colors;
+  return { ok: true, brand };
+}
+
+const COLOR_FIELDS: { key: BrandColorKey; form: string; label: string }[] = [
+  { key: "primary", form: "colorPrimary", label: "Primary color" },
+  { key: "secondary", form: "colorSecondary", label: "Secondary color" },
+  { key: "accent", form: "colorAccent", label: "Accent color" },
+  { key: "background", form: "colorBackground", label: "Background color" },
+  { key: "text", form: "colorText", label: "Text color" },
+];
+
+function readColorFields(
+  formData: FormData,
+): { ok: true; colors?: BrandColors } | { ok: false; error: string } {
+  const colors: BrandColors = {};
+  for (const field of COLOR_FIELDS) {
+    const raw = formData.get(field.form);
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (!text) continue;
+    const hex = normalizeHex(text);
+    if (!hex) {
+      return {
+        ok: false,
+        error: `${field.label} must be a hex color like #1B3A4B.`,
+      };
+    }
+    colors[field.key] = hex;
+  }
+  if (!brandHasColors(colors)) return { ok: true };
+  return { ok: true, colors };
 }

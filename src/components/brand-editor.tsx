@@ -63,6 +63,42 @@ function TextField({
   );
 }
 
+function ColorField({
+  label,
+  name,
+  defaultValue,
+  placeholder,
+}: {
+  label: string;
+  name: string;
+  defaultValue: string;
+  placeholder: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 text-sm">
+      <span className="font-medium">{label}</span>
+      <span className="flex items-center gap-2">
+        {defaultValue ? (
+          <span
+            aria-hidden
+            className="size-7 shrink-0 rounded-md border border-line"
+            style={{ backgroundColor: defaultValue }}
+          />
+        ) : null}
+        <input
+          className={inputClass}
+          name={name}
+          maxLength={7}
+          defaultValue={defaultValue}
+          placeholder={placeholder}
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </span>
+    </label>
+  );
+}
+
 function Group({
   title,
   hint,
@@ -199,7 +235,7 @@ export function BrandEditor({
 
         <Group
           title="Visual notes"
-          hint="Colors, light, and what belongs in the frame. Describe the logo in words if the writers need it."
+          hint="Light and what belongs in the frame. Describe the logo in words if the writers need it."
         >
           <TextField
             label="Colors and imagery"
@@ -209,6 +245,16 @@ export function BrandEditor({
             defaultValue={brand.visual_notes}
             placeholder="Warm wood, low evening light, the ridge in the background. Skip harsh flash."
           />
+        </Group>
+
+        <Group title="Colors" hint="Optional hex swatches, like #1B3A4B. Leave a field blank to skip it.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ColorField label="Primary" name="colorPrimary" defaultValue={brand.colors?.primary ?? ""} placeholder="#1B3A4B" />
+            <ColorField label="Secondary" name="colorSecondary" defaultValue={brand.colors?.secondary ?? ""} placeholder="#C4A574" />
+            <ColorField label="Accent" name="colorAccent" defaultValue={brand.colors?.accent ?? ""} placeholder="#8A6232" />
+            <ColorField label="Background" name="colorBackground" defaultValue={brand.colors?.background ?? ""} placeholder="#F3EFE6" />
+            <ColorField label="Text" name="colorText" defaultValue={brand.colors?.text ?? ""} placeholder="#1A1714" />
+          </div>
         </Group>
 
         <Group
