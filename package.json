@@ -10,11 +10,13 @@
     "test": "node --experimental-strip-types --import ./scripts/register-test-alias.mjs --test src/lib/*.test.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.26.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
     "next": "16.3.7",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

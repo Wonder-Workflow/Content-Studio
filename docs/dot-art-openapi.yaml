@@ -1,9 +1,10 @@
 openapi: 3.0.3
 info:
   title: Content Studio DOT art jobs
-  version: "1.0.0"
+  version: "2.0.0"
   description: |
-    Callbacks for DOT, the ChatGPT plugin and Slack agent that draws pack images.
+    Callback contract; this OpenAPI file alone is a custom-GPT Action, not an
+    installed plugin or MCP bridge. See docs/dot-mcp-setup.md for the local MCP.
     Content Studio does not call OpenAI or any image model. It queues a job, and
     DOT reads the brief and sends images back into the existing post_media slots.
 
@@ -11,10 +12,13 @@ info:
     into a custom GPT. Authenticate with HTTP Bearer and the value of
     DOT_ART_CALLBACK_SECRET (the same secret set on Vercel Production).
 
-    GET moves a queued job to processing.
+    GET is read-only. POST claim obtains an exclusive 15-minute lease.
+    Reuse a UUID lease_token on claim retries; renew before expiry.
     complete stores PNG, JPEG, or WebP in the private post-media bucket.
     Prefer https image URLs. base64 is only for a small image when you have no URL.
-    fail marks the job failed.
+    Completion requires the full expected image set and the lease token.
+    Identical completion retries return the saved result. Fail requires a lease;
+    retryable failures requeue up to three total claimed attempts.
 servers:
   - url: https://your-studio.vercel.app
     description: Content Studio production. Replace this host before import.
@@ -27,8 +31,7 @@ paths:
       summary: Read one art job
       description: |
         Returns the job, the full brief, the brand snapshot, the pack, and the
-        image slots DOT should fill. The first successful read sets status from
-        queued to processing.
+        image slots DOT should fill. Reading never claims or changes the job.
       parameters:
         - $ref: "#/components/parameters/JobId"
       responses:
@@ -44,14 +47,62 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/NotConfigured"
+  /api/dot/art-jobs/{id}/claim:
+    post:
+      operationId: claimArtJob
+      summary: Exclusively claim a queued or expired job
+      description: |
+        Reuse a client-chosen UUID lease_token on retries. Another token receives
+        409 during an active lease. An expired/released token must be replaced.
+        Returns the brief plus lease token, expiry, attempt count and frozen
+        expected positions. Do not generate unless a lease was returned.
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaseRequest"
+      responses:
+        "200":
+          description: Claimed view and lease, or terminal failed after three attempts.
+        "409":
+          $ref: "#/components/responses/Finished"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/dot/art-jobs/{id}/renew:
+    post:
+      operationId: renewArtJob
+      summary: Renew an active matching lease for 15 minutes
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LeaseRequest"
+      responses:
+        "200":
+          description: Lease token and new expiry.
+        "409":
+          $ref: "#/components/responses/Finished"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/dot/art-jobs/{id}/complete:
     post:
       operationId: completeArtJob
       summary: Save images and mark the job done
       description: |
         Downloads each image and inserts post_media rows for this post.
-        Carousel jobs accept up to 10 slides. A Post or Story accepts one image.
-        A Reel accepts one cover. Extra images are ignored.
+        Send exactly the claim's expected positions, in order, in one request.
+        A full carousel requires 10 slides (or all initially empty slots).
+        A Post or Story accepts one image. A Reel accepts one cover.
+        Partial sets and extra images are rejected; no per-image finalization.
+        Repeating the same token and ordered image descriptors returns the saved
+        completion result. A changed payload or stale token is rejected.
+        Entire JSON request must be below 4 MB (Vercel ceiling is 4.5 MB).
         When the job was queued with replace false, only empty slots are filled.
         When replace is true, images of that kind are replaced.
         URLs must be public https. Private and local hosts are refused.
@@ -85,7 +136,7 @@ paths:
   /api/dot/art-jobs/{id}/fail:
     post:
       operationId: failArtJob
-      summary: Mark the job failed
+      summary: Release for bounded retry or mark the job failed
       parameters:
         - $ref: "#/components/parameters/JobId"
       requestBody:
@@ -96,7 +147,7 @@ paths:
               $ref: "#/components/schemas/FailArtJob"
       responses:
         "200":
-          description: The job is failed.
+          description: The job is queued for retry or failed; repeat returns saved result.
           content:
             application/json:
               schema:
@@ -111,7 +162,7 @@ paths:
                     format: uuid
                   status:
                     type: string
-                    enum: [failed]
+                    enum: [queued, failed]
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -157,7 +208,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorBody"
     Finished:
-      description: The job is already done or failed.
+      description: The job is finished, already claimed, or the lease/payload does not match.
       content:
         application/json:
           schema:
@@ -219,6 +270,25 @@ components:
         completed_at:
           type: string
           nullable: true
+        lease_expires_at:
+          type: string
+          nullable: true
+        attempt_count:
+          type: integer
+          minimum: 0
+          maximum: 3
+        expected_kind:
+          type: string
+          nullable: true
+        expected_positions:
+          type: array
+          nullable: true
+          items:
+            type: integer
+        completion_result:
+          type: object
+          nullable: true
+          description: Saved success receipt, available on done jobs.
     ArtSlots:
       type: object
       required: [format, kind, count, filled, empty, replace, empty_positions]
@@ -296,10 +366,20 @@ components:
         base64:
           type: string
           description: Raw base64 or a data URL. PNG, JPEG, or WebP, at most 10MB.
+    LeaseRequest:
+      type: object
+      required: [lease_token]
+      properties:
+        lease_token:
+          type: string
+          format: uuid
     CompleteArtJob:
       type: object
-      required: [images]
+      required: [lease_token, images]
       properties:
+        lease_token:
+          type: string
+          format: uuid
         images:
           type: array
           minItems: 1
@@ -335,8 +415,14 @@ components:
                 type: integer
     FailArtJob:
       type: object
-      required: [error]
+      required: [lease_token, error, retryable]
       properties:
+        lease_token:
+          type: string
+          format: uuid
+        retryable:
+          type: boolean
+          description: True releases for retry if fewer than three attempts were claimed.
         error:
           type: string
           maxLength: 2000
