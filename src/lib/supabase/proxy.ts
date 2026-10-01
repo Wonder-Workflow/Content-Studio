@@ -1,10 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured, getSupabaseEnv } from "@/lib/supabase/env";
+import { isDotMcpProtocolPath } from "@/lib/dot-mcp-config";
 
 const PUBLIC_PREFIXES = ["/login", "/auth", "/api/dot"];
 
 function isPublicPath(pathname: string) {
+  if (pathname === "/oauth/consent") return true; // Consent owns its session/owner checks.
   if (pathname === "/") return true;
   return PUBLIC_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -23,6 +25,8 @@ function copySession(from: NextResponse, to: NextResponse) {
 }
 
 export async function updateSession(request: NextRequest) {
+  // MCP uses its own verified OAuth bearer, never cookie redirects or refreshes.
+  if (isDotMcpProtocolPath(request.nextUrl.pathname)) return NextResponse.next({ request });
   if (!isSupabaseConfigured()) {
     return NextResponse.next({ request });
   }

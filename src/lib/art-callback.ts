@@ -12,13 +12,13 @@ import {
   clipArtError,
   describeArtSlots,
   parseFailReason,
-  planArtWrites,
   artTarget,
   packPath,
   type ArtJob,
   type ArtSlotPlan,
 } from "@/lib/art-job";
 import { collectArtFiles, parseCompleteImages } from "@/lib/art-image";
+import { artCompletionHash, readArtCallbackBody, readLeaseToken } from "@/lib/art-lease";
 import {
   BATCH_REFERENCE_BUCKET,
   batchBriefNotes,
@@ -31,7 +31,17 @@ import { POST_ID_RE, isPostFormat } from "@/lib/posts";
 import { createServiceClient } from "@/lib/supabase/service";
 
 const JOB_COLUMNS =
-  "id, client_id, post_id, agency_id, batch_id, status, error, brief, replace_media, hold_media, created_at, updated_at, completed_at";
+  "id, client_id, post_id, agency_id, batch_id, status, error, brief, replace_media, hold_media, created_at, updated_at, completed_at, lease_token, lease_expires_at, attempt_count, expected_kind, expected_positions, completion_hash, completion_result";
+
+type CallbackJob = ArtJob & {
+  leaseToken: string | null;
+  leaseExpiresAt: string | null;
+  attemptCount: number;
+  expectedKind: string | null;
+  expectedPositions: number[] | null;
+  completionHash: string | null;
+  completionResult: unknown;
+};
 
 function json(body: unknown, status = 200) {
   return Response.json(body, {
@@ -84,15 +94,20 @@ function jobId(id: string): { ok: true; id: string } | { ok: false; response: Re
 async function loadJob(
   supabase: ServiceClient,
   id: string,
-): Promise<{ ok: true; job: ArtJob } | { ok: false; response: Response }> {
+): Promise<{ ok: true; job: CallbackJob } | { ok: false; response: Response }> {
   const { data, error } = await supabase.from("art_jobs").select(JOB_COLUMNS).eq("id", id).maybeSingle();
   if (error) return { ok: false, response: json({ error: "The art job could not be read." }, 500) };
   const job = artJobFromRow(data);
-  if (!job) return { ok: false, response: json({ error: "That art job was not found." }, 404) };
-  return { ok: true, job };
+  if (!job || !data) return { ok: false, response: json({ error: "That art job was not found." }, 404) };
+  return { ok: true, job: { ...job,
+    leaseToken: data.lease_token, leaseExpiresAt: data.lease_expires_at,
+    attemptCount: data.attempt_count, expectedKind: data.expected_kind,
+    expectedPositions: data.expected_positions, completionHash: data.completion_hash,
+    completionResult: data.completion_result,
+  } };
 }
 
-function jobJson(job: ArtJob) {
+function jobJson(job: CallbackJob) {
   return {
     id: job.id,
     client_id: job.clientId,
@@ -106,6 +121,11 @@ function jobJson(job: ArtJob) {
     created_at: job.createdAt,
     updated_at: job.updatedAt,
     completed_at: job.completedAt,
+    lease_expires_at: job.leaseExpiresAt,
+    attempt_count: job.attemptCount,
+    expected_kind: job.expectedKind,
+    expected_positions: job.expectedPositions,
+    completion_result: job.completionResult,
   };
 }
 
@@ -121,12 +141,28 @@ function slotsJson(plan: ArtSlotPlan) {
   };
 }
 
-async function markFailed(supabase: ServiceClient, jobId: string, message: string) {
-  await supabase
-    .from("art_jobs")
-    .update({ status: "failed", error: clipArtError(message) })
-    .eq("id", jobId)
-    .in("status", ["queued", "processing"]);
+async function releaseForRetry(supabase: ServiceClient, jobId: string, token: string, message: string) {
+  return supabase.rpc("fail_dot_art_job", {
+    target_job_id: jobId, worker_token: token, reason: clipArtError(message), retryable: true,
+  });
+}
+
+function rpcFailure(error: { code?: string; message: string }) {
+  if (error.message.includes("not found")) return json({ error: "That art job was not found." }, 404);
+  if (error.code === "P0001" || error.code === "23505") {
+    return json({ error: error.code === "23505" ? "That image slot is already filled." : error.message }, 409);
+  }
+  return json({ error: "The job operation could not be confirmed. Read status and retry with the same token." }, 503);
+}
+
+async function callbackBody(request: Request): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {
+  try {
+    return { ok: true, body: await readArtCallbackBody(request) };
+  } catch (error) {
+    return { ok: false, response: json({ error: error instanceof Error && error.message === "body too large"
+      ? "Keep the entire request below 4 MB. Use smaller images or real HTTPS image URLs."
+      : "Send JSON." }, error instanceof Error && error.message === "body too large" ? 413 : 400) };
+  }
 }
 
 async function removeObjects(supabase: ServiceClient, paths: string[]) {
@@ -143,23 +179,30 @@ export async function getDotArtJob(request: Request, id: string) {
 
   const loaded = await loadJob(auth.supabase, parsedId.id);
   if (!loaded.ok) return loaded.response;
-  let job = loaded.job;
-
-  if (job.status === "queued") {
-    const updated = await auth.supabase
-      .from("art_jobs")
-      .update({ status: "processing" })
-      .eq("id", job.id)
-      .eq("status", "queued")
-      .select(JOB_COLUMNS)
-      .maybeSingle();
-    const next = artJobFromRow(updated.data);
-    if (next) job = next;
-  }
-
-  const view = await loadArtView(auth.supabase, job);
+  const view = await loadArtView(auth.supabase, loaded.job);
   if (!view.ok) return view.response;
   return json(view.body);
+}
+
+export async function claimDotArtJob(request: Request, id: string, renew = false) {
+  const auth = await authorize(request);
+  if (!auth.ok) return auth.response;
+  const parsedId = jobId(id);
+  if (!parsedId.ok) return parsedId.response;
+  const parsed = await callbackBody(request);
+  if (!parsed.ok) return parsed.response;
+  const token = readLeaseToken(parsed.body);
+  if (!token) return json({ error: "Send a UUID lease_token and reuse it for retries." }, 400);
+  const result = await auth.supabase.rpc(renew ? "renew_dot_art_job" : "claim_dot_art_job", {
+    target_job_id: parsedId.id, worker_token: token,
+  });
+  if (result.error) return rpcFailure(result.error);
+  if (renew || result.data?.status === "failed") return json(result.data);
+  const loaded = await loadJob(auth.supabase, parsedId.id);
+  if (!loaded.ok) return loaded.response;
+  const view = await loadArtView(auth.supabase, loaded.job);
+  if (!view.ok) return view.response;
+  return json({ ...(view.body as Record<string, unknown>), lease: result.data });
 }
 
 export async function failDotArtJob(request: Request, id: string) {
@@ -168,29 +211,19 @@ export async function failDotArtJob(request: Request, id: string) {
   const parsedId = jobId(id);
   if (!parsedId.ok) return parsedId.response;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Send JSON." }, 400);
-  }
+  const parsed = await callbackBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
+  const token = readLeaseToken(body);
+  if (!token) return json({ error: "Send the claim's lease_token." }, 400);
   const reason = parseFailReason(body);
   if (!reason.ok) return json({ error: reason.error }, 400);
-
-  const { data, error } = await auth.supabase
-    .from("art_jobs")
-    .update({ status: "failed", error: reason.error })
-    .eq("id", parsedId.id)
-    .in("status", ["queued", "processing"])
-    .select("id")
-    .maybeSingle();
-
-  if (error) return json({ error: "The art job could not be updated." }, 500);
-  if (data) return json({ ok: true, job_id: parsedId.id, status: "failed" });
-
-  const loaded = await loadJob(auth.supabase, parsedId.id);
-  if (!loaded.ok) return loaded.response;
-  return json({ error: "This art job is already finished." }, 409);
+  const retryable = (body as Record<string, unknown>).retryable;
+  if (typeof retryable !== "boolean") return json({ error: "Send retryable as true or false." }, 400);
+  const result = await auth.supabase.rpc("fail_dot_art_job", {
+    target_job_id: parsedId.id, worker_token: token, reason: reason.error, retryable,
+  });
+  return result.error ? rpcFailure(result.error) : json(result.data);
 }
 
 export async function completeDotArtJob(request: Request, id: string) {
@@ -199,44 +232,45 @@ export async function completeDotArtJob(request: Request, id: string) {
   const parsedId = jobId(id);
   if (!parsedId.ok) return parsedId.response;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: "Send JSON." }, 400);
-  }
+  const parsed = await callbackBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
+  const token = readLeaseToken(body);
+  if (!token) return json({ error: "Send the claim's lease_token." }, 400);
   const images = parseCompleteImages(body);
   if (!images.ok) return json({ error: images.error }, 400);
+  const requestHash = artCompletionHash(images.images);
 
   const loaded = await loadJob(auth.supabase, parsedId.id);
   if (!loaded.ok) return loaded.response;
   const job = loaded.job;
+  if (job.status === "done" && job.leaseToken === token && job.completionHash === requestHash) {
+    return json(job.completionResult);
+  }
   if (job.status === "done" || job.status === "failed") {
     return json({ error: "This art job is already finished." }, 409);
+  }
+  if (job.status !== "processing" || job.leaseToken !== token || !job.leaseExpiresAt
+    || Date.parse(job.leaseExpiresAt) <= Date.now()) {
+    return json({ error: "An active matching lease is required." }, 409);
+  }
+  if (!job.expectedPositions?.length || images.images.length !== job.expectedPositions.length) {
+    return json({ error: "Send the full expected image set in one completion." }, 422);
   }
 
   const context = await loadPostContext(auth.supabase, job);
   if (!context.ok) {
-    await markFailed(auth.supabase, job.id, context.error);
+    if (context.status >= 500) await releaseForRetry(auth.supabase, job.id, token, context.error);
     return json({ error: context.error }, context.status);
   }
 
-  const plan = planArtWrites({
-    occupied: job.hold ? [] : context.positions,
-    incomingCount: images.images.length,
-    replace: job.hold || job.replace,
-    max: context.target.count,
-  });
-  if (!plan.ok) {
-    await markFailed(auth.supabase, job.id, plan.error);
-    return json({ error: plan.error }, 422);
-  }
-
-  const chosen = images.images.slice(0, plan.plan.inserts.length);
-  const files = await collectArtFiles(chosen);
+  if (context.target.kind !== job.expectedKind) return json({ error: "The pack format changed. Queue a new job." }, 409);
+  const inserts = job.expectedPositions.map((position, imageIndex) => ({ position, imageIndex }));
+  const files = await collectArtFiles(images.images);
   if (!files.ok) {
-    await markFailed(auth.supabase, job.id, files.error);
-    return json({ error: files.error }, 422);
+    const transient = files.error.includes("could not be reached");
+    if (transient) await releaseForRetry(auth.supabase, job.id, token, files.error);
+    return json({ error: files.error }, transient ? 503 : 422);
   }
 
   const uploaded: string[] = [];
@@ -248,11 +282,10 @@ export async function completeDotArtJob(request: Request, id: string) {
     byte_size: number;
   }[] = [];
 
-  for (const insert of plan.plan.inserts) {
+  for (const insert of inserts) {
     const file = files.files[insert.imageIndex];
     if (!file) {
       await removeObjects(auth.supabase, uploaded);
-      await markFailed(auth.supabase, job.id, "An image was missing.");
       return json({ error: "An image was missing." }, 422);
     }
     const mediaId = randomUUID();
@@ -267,7 +300,6 @@ export async function completeDotArtJob(request: Request, id: string) {
       });
     } catch {
       await removeObjects(auth.supabase, uploaded);
-      await markFailed(auth.supabase, job.id, "That image could not be saved.");
       return json({ error: "That image could not be saved." }, 500);
     }
 
@@ -278,7 +310,7 @@ export async function completeDotArtJob(request: Request, id: string) {
     if (stored.error) {
       await removeObjects(auth.supabase, uploaded);
       const message = "That image could not be saved to the pack.";
-      await markFailed(auth.supabase, job.id, message);
+      await releaseForRetry(auth.supabase, job.id, token, message);
       return json({ error: message }, 500);
     }
     uploaded.push(path);
@@ -295,34 +327,20 @@ export async function completeDotArtJob(request: Request, id: string) {
     target_job_id: job.id,
     target_kind: context.target.kind,
     rows,
+    worker_token: token,
+    request_hash: requestHash,
   });
 
   if (completed.error) {
-    await removeObjects(auth.supabase, uploaded);
-    const message = completed.error.message || "The images could not be saved.";
-    if (message.includes("already finished")) {
-      return json({ error: "This art job is already finished." }, 409);
+    // Only definite transaction rejection permits cleanup. A transport error may
+    // hide a committed completion: deleting those files would break the pack.
+    if (["P0001", "23505", "23514", "23503", "22P02"].includes(completed.error.code)) {
+      await removeObjects(auth.supabase, uploaded);
     }
-    if (message.includes("not found")) {
-      return json({ error: "That art job was not found." }, 404);
-    }
-    const friendly = message.includes("already filled")
-      ? "That image slot is already filled."
-      : "The images could not be saved on the pack.";
-    await markFailed(auth.supabase, job.id, friendly);
-    return json({ error: friendly }, 422);
+    return rpcFailure(completed.error);
   }
-
-  return json({
-    ok: true,
-    job_id: job.id,
-    status: "done",
-    media: rows.map((row) => ({
-      id: row.id,
-      kind: context.target.kind,
-      position: row.position,
-    })),
-  });
+  if (completed.data?.replayed) await removeObjects(auth.supabase, uploaded);
+  return json(completed.data);
 }
 
 async function loadPostContext(supabase: ServiceClient, job: ArtJob): Promise<
@@ -330,7 +348,6 @@ async function loadPostContext(supabase: ServiceClient, job: ArtJob): Promise<
       ok: true;
       agencyId: string;
       target: ReturnType<typeof artTarget>;
-      positions: number[];
     }
   | { ok: false; error: string; status: number }
 > {
@@ -353,24 +370,16 @@ async function loadPostContext(supabase: ServiceClient, job: ArtJob): Promise<
   if (!client?.agency_id) return { ok: false, error: "That pack is not on this studio.", status: 404 };
 
   const target = artTarget(post.format);
-  const { data: media, error: mediaError } = await supabase
-    .from("post_media")
-    .select("position")
-    .eq("post_id", job.postId)
-    .eq("kind", target.kind);
-  if (mediaError) return { ok: false, error: "The images on this pack could not be read.", status: 500 };
-
   return {
     ok: true,
     agencyId: client.agency_id,
     target,
-    positions: (media ?? []).map((row) => row.position),
   };
 }
 
 async function loadArtView(
   supabase: ServiceClient,
-  job: ArtJob,
+  job: CallbackJob,
 ): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {
   const { data: post, error: postError } = await supabase
     .from("posts")
@@ -406,6 +415,10 @@ async function loadArtView(
     positions: job.hold ? [] : positions,
     replace: job.hold ? false : job.replace,
   });
+  if (job.expectedPositions) {
+    slots.emptyPositions = job.expectedPositions;
+    slots.empty = job.expectedPositions.length;
+  }
   const brand = brandFromRow(client.brand);
   const pack = packFromRow(post.pack);
   const notes = await notesForDot(supabase, job);

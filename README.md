@@ -294,18 +294,32 @@ If the token is missing, the job is still queued. The page says DOT can pull it 
 
 ### ChatGPT custom action
 
-The contract is [`docs/dot-art-openapi.yaml`](docs/dot-art-openapi.yaml).
+The contract is [`docs/dot-art-openapi.yaml`](docs/dot-art-openapi.yaml). It is an
+Actions schema, not an installed plugin. The local stdio MCP bridge, placeholder
+setup, real-file handoff requirements, and remaining DOT runtime limitations are
+documented in [`docs/dot-mcp-setup.md`](docs/dot-mcp-setup.md). These instructions
+describe a future integration after approval; local preparation does not
+configure credentials, install a connector, or deploy.
 
 1. In ChatGPT, open the DOT custom GPT, then **Configure → Actions**, and import that file.
 2. Set the server URL to the production origin, such as `https://your-studio.vercel.app`. No path after the host.
 3. Set authentication to API key, Bearer. Paste the same value you will store in `DOT_ART_CALLBACK_SECRET`.
 4. On Vercel Production, set `DOT_ART_CALLBACK_SECRET` and `SUPABASE_SERVICE_ROLE_KEY`. Both are server only. The secret is the bearer token on these routes:
    - `GET /api/dot/art-jobs/{id}`
+   - `POST /api/dot/art-jobs/{id}/claim`
+   - `POST /api/dot/art-jobs/{id}/renew`
    - `POST /api/dot/art-jobs/{id}/complete`
    - `POST /api/dot/art-jobs/{id}/fail`
 5. The service role key lets those routes write the private bucket. Studio pages do not use it. Do not add an OpenAI key to this Next app.
 
-`GET` returns the job, the brief, the brand, the pack path, and the slots to fill. The first read moves a queued job to processing. `complete` accepts image URLs (preferred) or base64, stores PNG, JPEG, or WebP up to 10MB, and marks the job done. `fail` stores the error and marks the job failed.
+`GET` returns the job, brief, brand, pack path, and slots without changing status.
+Claim with a client-chosen UUID `lease_token` before generating; retry a claim with
+the same token and renew its 15-minute lease before expiry. `complete` requires
+that token and the entire expected ordered image set. It returns the saved result
+on an identical replay. `fail` requires the token and a `retryable` boolean;
+recoverable failures requeue for at most three claimed attempts. The whole JSON
+request is capped at 4 MB, below Vercel's 4.5 MB ceiling. The storage limit of
+10 MB per file does not override that total request limit.
 
 Signed-in check:
 
@@ -313,8 +327,8 @@ Signed-in check:
 2. Sign in, open a pack with an empty image slot, and choose **Generate with DOT**.
 3. In Supabase, `select id, post_id, status, replace_media from public.art_jobs order by created_at desc limit 5;` shows a queued row.
 4. Choose **Generate with DOT** again while that job is queued. A second row is not created.
-5. With the callback secret and the service role key set, `GET /api/dot/art-jobs/{id}` with `Authorization: Bearer …` returns the brief. The status becomes processing.
-6. `POST` complete with an https PNG URL. Refresh the pack. The image is in the empty slot. A manual upload in another slot is still there.
+5. After the lease migration/release is approved and applied, authenticated GET returns the brief without changing status. POST claim obtains the exclusive lease.
+6. POST complete with the lease token and the full expected image set. Replay the identical request and confirm the media IDs stay the same. Existing manual images remain when filling empty slots.
 7. Fill every slot for that type, then choose **Generate with DOT**. The page asks you to replace or skip. Skip leaves the images. Replace queues a job with `replace_media` true.
 8. Unset `DOT_SLACK_BOT_TOKEN` and generate again after the open job is done or failed. The new job is still queued, and the page says Slack is not connected.
 
@@ -384,3 +398,9 @@ supabase/config.toml      local Supabase CLI config
 ```
 
 Protected pages check the signed-in user on the server. The proxy only refreshes the session cookie so people stay signed in. A forged cookie is not treated as a user.
+## Prepared cloud DOT connector
+
+The local review branch also prepares a disabled remote Streamable HTTP MCP
+adapter in this app, an owner-scoped OAuth gate and portable plugin templates.
+See [cloud configuration and verification gaps](docs/dot-cloud-mcp.md).
+Nothing is installed, connected or deployed by these changes.

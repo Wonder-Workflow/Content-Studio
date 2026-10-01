@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "content-studio-dot-cloud",
+  "version": "0.1.0",
+  "description": "Owner-scoped Content Studio art jobs with exclusive leases and whole-set completion.",
+  "author": { "name": "Wonder Workflow" },
+  "extensions": {
+    "com.openai.interface": {
+      "displayName": "Content Studio DOT",
+      "shortDescription": "Content Studio art jobs",
+      "longDescription": "Read, claim, renew and finalize owned Content Studio art jobs using actual generated image files.",
+      "developerName": "Wonder Workflow",
+      "category": "Productivity",
+      "defaultPrompt": ["Read the requested art job, claim it, and deliver its complete image set."]
+    }
+  }
+}
