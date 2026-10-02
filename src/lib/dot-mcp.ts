@@ -95,6 +95,7 @@ export async function handleDotMcp(request: Request, config: DotMcpConfig | null
       if (!job) return error("Owned job is unavailable");
       const body: Record<string, unknown> = { ...args }; delete body.job_id;
       if (name === "art_job_complete") {
+        if (!config.fileRules.length) return error("Image delivery is disabled until verified file rules are configured");
         const completion = validators.art_job_complete.parse(params.arguments);
         const expiry = Date.parse(job.leaseExpiresAt ?? "");
         if (job.leaseToken !== completion.lease_token || (job.status !== "done" && (job.status !== "processing"

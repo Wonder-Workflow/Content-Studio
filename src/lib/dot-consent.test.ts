@@ -49,3 +49,13 @@ test("consent action rechecks current owner and trusted request details before a
   assert.match((await decideDotConsent(mock, config, details.authorization_id, "deny"))!, /access_denied/);
   assert.equal(approvals, 1); assert.equal(denials, 1);
 });
+
+test("consent without file rules retains owner client and exact redirect checks", () => {
+  for (const value of [undefined, "", "[]"]) {
+    const noFiles = readDotConsentConfig({ ...env, DOT_MCP_FILE_RULES: value })!;
+    assert.deepEqual(noFiles.fileRules, []);
+    assert.equal(dotConsentDetailsAllowed(details, noFiles, details.authorization_id), true);
+    assert.equal(dotConsentDetailsAllowed({ ...details, user: { ...details.user, id: clientId } }, noFiles, details.authorization_id), false);
+    assert.equal(dotConsentDetailsAllowed({ ...details, redirect_uri: "https://evil.example/callback" }, noFiles, details.authorization_id), false);
+  }
+});

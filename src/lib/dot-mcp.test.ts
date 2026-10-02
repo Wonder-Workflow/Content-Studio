@@ -123,3 +123,23 @@ test("public discovery bootstraps without client IDs while job tools remain unav
     for (const name of names) { if (saved[name] === undefined) delete process.env[name]; else process.env[name] = saved[name]; }
   }
 });
+
+test("authenticated status works without file rules while completion cannot download or mutate", async () => {
+  const noFiles = { ...config, fileRules: [] };
+  const baseEnv = { DOT_MCP_ENABLED: "true", DOT_MCP_ORIGIN: config.origin,
+    NEXT_PUBLIC_SUPABASE_URL: config.supabaseUrl, NEXT_PUBLIC_SUPABASE_ANON_KEY: "fixture-public-key",
+    DOT_MCP_OWNER_USER_ID: owner, DOT_MCP_CLIENT_IDS: client };
+  for (const value of [undefined, "", "[]"]) assert.deepEqual(readDotMcpConfig({ ...baseEnv, DOT_MCP_FILE_RULES: value })?.fileRules, []);
+  assert.equal(readDotMcpConfig({ ...baseEnv, DOT_MCP_FILE_RULES: "invalid" }), null);
+  let reads = 0, downloads = 0, mutations = 0;
+  const deps = { ...dotMcpDependencies, authenticate: async () => ({ ownerId: owner, client: {} as never }),
+    ownedJob: async () => ({ id: owner, status: "processing", leaseToken: token, leaseExpiresAt: new Date(Date.now()+60000).toISOString(), expectedPositions: [0] }),
+    images: async () => { downloads++; return []; },
+    invoke: async (name: string) => { if (name === "art_job_status") reads++; else mutations++; return Response.json({ status: "processing" }); } };
+  const read = await handleDotMcp(request("tools/call", { name: "art_job_status", arguments: { job_id: owner } }), noFiles, deps);
+  assert.equal((await read.json()).result.isError, false);
+  const completion = await handleDotMcp(request("tools/call", { name: "art_job_complete", arguments: { job_id: owner, lease_token: token, images: [ref] } }), noFiles, deps);
+  const result = (await completion.json()).result;
+  assert.equal(result.isError, true); assert.match(result.content[0].text, /verified file rules/);
+  assert.deepEqual({ reads, downloads, mutations }, { reads: 1, downloads: 0, mutations: 0 });
+});

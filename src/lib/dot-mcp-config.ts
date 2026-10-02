@@ -36,8 +36,8 @@ export function readDotMcpConfig(env: Record<string, string | undefined>): DotMc
   if (!origin || !supabaseUrl || !publishableKey || !ownerId || !POST_ID_RE.test(ownerId)
     || !clientIds?.length || clientIds.some((id) => !POST_ID_RE.test(id))) return null;
   let rules: unknown;
-  try { rules = JSON.parse(env.DOT_MCP_FILE_RULES ?? ""); } catch { return null; }
-  if (!Array.isArray(rules) || rules.length < 1 || rules.length > 8) return null;
+  try { rules = JSON.parse(env.DOT_MCP_FILE_RULES?.trim() || "[]"); } catch { return null; }
+  if (!Array.isArray(rules) || rules.length > 8) return null;
   const fileRules: DotFileRule[] = [];
   for (const rule of rules) {
     const fileOrigin = httpsOrigin(rule?.origin);
